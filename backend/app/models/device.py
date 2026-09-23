@@ -55,7 +55,9 @@ class DeviceEvent(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     tenant_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True, index=True)
 
-    event_type: Mapped[DeviceEventType] = mapped_column(Enum(DeviceEventType), nullable=False)
+    event_type: Mapped[DeviceEventType] = mapped_column(
+        Enum(DeviceEventType, values_callable=lambda enum_cls: [e.value for e in enum_cls]), nullable=False
+    )
     device_label: Mapped[str] = mapped_column(String(255), nullable=True)
     detail: Mapped[str] = mapped_column(String(500), nullable=True)
 
