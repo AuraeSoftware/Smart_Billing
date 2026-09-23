@@ -18,13 +18,22 @@ function authHeaders(): Record<string, string> {
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // Important: when the body is FormData, we must NOT set a Content-Type
+  // header at all -- not even by setting it to undefined, which the Fetch
+  // API turns into the literal string "Content-Type: undefined" rather
+  // than omitting it. That overwrites the browser's auto-generated
+  // "multipart/form-data; boundary=..." header, and the server then can't
+  // parse the upload (FastAPI reports it as 422 Unprocessable Entity,
+  // since it can't find the required file fields in an unparseable body).
+  const isFormData = options.body instanceof FormData
+  const headers: Record<string, string> = {
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...authHeaders(),
+    ...(options.headers as Record<string, string> | undefined),
+  }
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': options.body instanceof FormData ? undefined as unknown as string : 'application/json',
-      ...authHeaders(),
-      ...(options.headers || {}),
-    },
+    headers,
   })
   if (!res.ok) {
     let detail = res.statusText
