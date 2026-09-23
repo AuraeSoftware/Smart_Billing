@@ -58,7 +58,9 @@ class Invoice(Base):
     issue_date: Mapped[date] = mapped_column(Date, nullable=False)
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
-    status: Mapped[InvoiceStatus] = mapped_column(Enum(InvoiceStatus), default=InvoiceStatus.DRAFT)
+    status: Mapped[InvoiceStatus] = mapped_column(
+        Enum(InvoiceStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]), default=InvoiceStatus.DRAFT
+    )
 
     subtotal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
     tax_total: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
@@ -108,7 +110,9 @@ class Quotation(Base):
     issue_date: Mapped[date] = mapped_column(Date, nullable=False)
     valid_until: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
-    status: Mapped[QuotationStatus] = mapped_column(Enum(QuotationStatus), default=QuotationStatus.DRAFT)
+    status: Mapped[QuotationStatus] = mapped_column(
+        Enum(QuotationStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]), default=QuotationStatus.DRAFT
+    )
     revision: Mapped[int] = mapped_column(Integer, default=1)
 
     subtotal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
