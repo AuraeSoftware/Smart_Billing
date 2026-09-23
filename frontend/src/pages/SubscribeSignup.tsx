@@ -46,7 +46,7 @@ export default function SubscribeSignup() {
           </div>
           <div className="field">
             <label>Workspace slug (used in your URL)</label>
-            <input required pattern="[a-z0-9-]+" value={form.slug} onChange={(e) => update('slug', e.target.value.toLowerCase())} />
+            <input required pattern="[a-z0-9\-]+" value={form.slug} onChange={(e) => update('slug', e.target.value.toLowerCase())} />
           </div>
           <div className="field">
             <label>Business contact email</label>
