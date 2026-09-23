@@ -16,19 +16,33 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # create_type=False on every one of these: they're created explicitly,
+    # once, right below. Without it, SQLAlchemy also auto-creates the type
+    # a second time as a side effect of op.create_table() (it fires a
+    # before_create event on any table with an enum column), and that
+    # second attempt always fails with "type already exists" -- on any
+    # database, every single run, regardless of whether the schema was
+    # reset beforehand.
     subscription_status = postgresql.ENUM(
-        "pending_onboarding", "active", "suspended", "cancelled", name="subscriptionstatus"
+        "pending_onboarding", "active", "suspended", "cancelled",
+        name="subscriptionstatus", create_type=False,
     )
-    user_role = postgresql.ENUM("supreme_admin", "super_admin", "tenant_user", name="userrole")
+    user_role = postgresql.ENUM(
+        "supreme_admin", "super_admin", "tenant_user",
+        name="userrole", create_type=False,
+    )
     device_event_type = postgresql.ENUM(
         "registered", "login_blocked_other_device", "deregistered", "re_registered",
-        "suspended_by_supreme_admin", "reactivated_by_supreme_admin", name="deviceeventtype"
+        "suspended_by_supreme_admin", "reactivated_by_supreme_admin",
+        name="deviceeventtype", create_type=False,
     )
     invoice_status = postgresql.ENUM(
-        "draft", "sent", "viewed", "paid", "partially_paid", "overdue", "cancelled", name="invoicestatus"
+        "draft", "sent", "viewed", "paid", "partially_paid", "overdue", "cancelled",
+        name="invoicestatus", create_type=False,
     )
     quotation_status = postgresql.ENUM(
-        "draft", "sent", "accepted", "declined", "expired", "converted", name="quotationstatus"
+        "draft", "sent", "accepted", "declined", "expired", "converted",
+        name="quotationstatus", create_type=False,
     )
 
     bind = op.get_bind()
