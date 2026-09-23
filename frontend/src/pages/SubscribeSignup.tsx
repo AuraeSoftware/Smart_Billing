@@ -35,45 +35,43 @@ export default function SubscribeSignup() {
   }
 
   return (
-    <div className="app-shell">
-      <main className="content" style={{ maxWidth: 520, marginTop: 40 }}>
-        <div className="card">
-          <h1>Start your Smart Billing subscription</h1>
-          <p className="muted">Step 1 of 2 — business details. Branding comes next and is required before your workspace goes live.</p>
-          <form onSubmit={onSubmit}>
-            <div className="field">
-              <label>Business name</label>
-              <input required value={form.tenant_name} onChange={(e) => update('tenant_name', e.target.value)} />
-            </div>
-            <div className="field">
-              <label>Workspace slug (used in your URL)</label>
-              <input required pattern="[a-z0-9-]+" value={form.slug} onChange={(e) => update('slug', e.target.value.toLowerCase())} />
-            </div>
-            <div className="field">
-              <label>Business contact email</label>
-              <input type="email" required value={form.contact_email} onChange={(e) => update('contact_email', e.target.value)} />
-            </div>
-            <hr style={{ border: 'none', borderTop: '1px solid #eee', margin: '18px 0' }} />
-            <p className="muted">Your Super Admin account</p>
-            <div className="field">
-              <label>Full name</label>
-              <input required value={form.super_admin_full_name} onChange={(e) => update('super_admin_full_name', e.target.value)} />
-            </div>
-            <div className="field">
-              <label>Email</label>
-              <input type="email" required value={form.super_admin_email} onChange={(e) => update('super_admin_email', e.target.value)} />
-            </div>
-            <div className="field">
-              <label>Password</label>
-              <input type="password" required minLength={8} value={form.super_admin_password} onChange={(e) => update('super_admin_password', e.target.value)} />
-            </div>
-            {error && <p className="error-text">{error}</p>}
-            <button className="btn" type="submit" disabled={loading}>
-              {loading ? 'Creating…' : 'Continue to branding'}
-            </button>
-          </form>
-        </div>
-      </main>
+    <div className="auth-shell">
+      <div className="auth-card auth-wide card">
+        <h1>Start your Smart Billing subscription</h1>
+        <p className="muted">Step 1 of 2 — business details. Branding comes next and is required before your workspace goes live.</p>
+        <form onSubmit={onSubmit}>
+          <div className="field">
+            <label>Business name</label>
+            <input required value={form.tenant_name} onChange={(e) => update('tenant_name', e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Workspace slug (used in your URL)</label>
+            <input required pattern="[a-z0-9-]+" value={form.slug} onChange={(e) => update('slug', e.target.value.toLowerCase())} />
+          </div>
+          <div className="field">
+            <label>Business contact email</label>
+            <input type="email" required value={form.contact_email} onChange={(e) => update('contact_email', e.target.value)} />
+          </div>
+          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />
+          <p className="muted">Your Super Admin account</p>
+          <div className="field">
+            <label>Full name</label>
+            <input required value={form.super_admin_full_name} onChange={(e) => update('super_admin_full_name', e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Email</label>
+            <input type="email" required value={form.super_admin_email} onChange={(e) => update('super_admin_email', e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input type="password" required minLength={8} value={form.super_admin_password} onChange={(e) => update('super_admin_password', e.target.value)} />
+          </div>
+          {error && <p className="error-text">{error}</p>}
+          <button className="btn" type="submit" disabled={loading}>
+            {loading ? 'Creating…' : 'Continue to branding'}
+          </button>
+        </form>
+      </div>
     </div>
   )
 }

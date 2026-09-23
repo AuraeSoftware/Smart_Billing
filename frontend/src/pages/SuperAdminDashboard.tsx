@@ -2,8 +2,16 @@ import { useEffect, useState } from 'react'
 import { apiFetch, ApiError } from '../lib/api'
 import { getCached, isOnline, queueOfflineCreate, syncAll, type DocType } from '../lib/offlineStore'
 import SyncStatusBadge from '../components/SyncStatusBadge'
-import { useAuth } from '../lib/auth'
+import AppLayout, { type NavItem } from '../components/AppLayout'
 import Settings from './Settings'
+
+const NAV_ITEMS: NavItem[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'invoices', label: 'Invoices' },
+  { key: 'quotations', label: 'Quotations' },
+  { key: 'receipts', label: 'Receipts' },
+  { key: 'settings', label: 'Settings' },
+]
 
 interface LineItem { description: string; quantity: number; unit_price: number; tax_rate_percent: number; discount_percent: number }
 
@@ -15,7 +23,6 @@ const emptyItem = (): LineItem => ({ description: '', quantity: 1, unit_price: 0
 
 export default function SuperAdminDashboard() {
   const [tab, setTab] = useState<'overview' | 'invoices' | 'quotations' | 'receipts' | 'settings'>('overview')
-  const { session, setSession } = useAuth()
 
   useEffect(() => {
     // Pull the full document history into the offline cache on load, then
@@ -26,30 +33,18 @@ export default function SuperAdminDashboard() {
   }, [])
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">SMART <span>BILLING</span></div>
-        <nav>
-          <SyncStatusBadge />
-          <span style={{ marginLeft: 18 }}>{session?.fullName}</span>
-          <button className="linklike" onClick={() => setSession(null)}>Sign out</button>
-        </nav>
-      </header>
-      <main className="content">
-        <div className="tabs">
-          <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Overview</button>
-          <button className={tab === 'invoices' ? 'active' : ''} onClick={() => setTab('invoices')}>Invoices</button>
-          <button className={tab === 'quotations' ? 'active' : ''} onClick={() => setTab('quotations')}>Quotations</button>
-          <button className={tab === 'receipts' ? 'active' : ''} onClick={() => setTab('receipts')}>Receipts</button>
-          <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>Settings</button>
-        </div>
-        {tab === 'overview' && <OverviewPanel />}
-        {tab === 'invoices' && <InvoicesPanel />}
-        {tab === 'quotations' && <QuotationsPanel />}
-        {tab === 'receipts' && <ReceiptsPanel />}
-        {tab === 'settings' && <Settings />}
-      </main>
-    </div>
+    <AppLayout
+      navItems={NAV_ITEMS}
+      activeKey={tab}
+      onNavigate={(key) => setTab(key as typeof tab)}
+      topbarExtra={<SyncStatusBadge />}
+    >
+      {tab === 'overview' && <OverviewPanel />}
+      {tab === 'invoices' && <InvoicesPanel />}
+      {tab === 'quotations' && <QuotationsPanel />}
+      {tab === 'receipts' && <ReceiptsPanel />}
+      {tab === 'settings' && <Settings />}
+    </AppLayout>
   )
 }
 
@@ -84,9 +79,9 @@ function OverviewPanel() {
       <h2>Overview</h2>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
         {tiles.map(([label, value]) => (
-          <div key={label} style={{ border: '1px solid #eee', borderRadius: 8, padding: 14 }}>
-            <div className="muted" style={{ fontSize: 12, textTransform: 'uppercase' }}>{label}</div>
-            <div style={{ fontSize: 24, fontWeight: 700 }}>{value}</div>
+          <div className="stat-tile" key={label}>
+            <div className="label">{label}</div>
+            <div className="value">{value}</div>
           </div>
         ))}
       </div>
@@ -134,7 +129,7 @@ function LineItemsEditor({ items, setItems }: { items: LineItem[]; setItems: (i:
   }
   return (
     <div>
-      <div className="item-row" style={{ fontSize: 12, color: 'var(--grey)', fontWeight: 600 }}>
+      <div className="item-row" style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>
         <span>Description</span><span>Qty</span><span>Unit price</span><span>Tax %</span><span>Disc %</span><span></span>
       </div>
       {items.map((it, i) => (

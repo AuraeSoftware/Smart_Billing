@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api'
-import { useAuth } from '../lib/auth'
+import AppLayout, { type NavItem } from '../components/AppLayout'
+
+const NAV_ITEMS: NavItem[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'devices', label: 'Device alerts' },
+  { key: 'tenants', label: 'Tenants' },
+]
 
 interface TenantRow { id: string; name: string; slug: string; subscription_status: string; contact_email: string }
 interface DeviceEventRow {
@@ -25,7 +31,6 @@ interface PlatformAnalytics {
 }
 
 export default function SupremeAdminDashboard() {
-  const { session, setSession } = useAuth()
   const [tab, setTab] = useState<'overview' | 'tenants' | 'devices'>('overview')
   const [tenants, setTenants] = useState<TenantRow[]>([])
   const [events, setEvents] = useState<DeviceEventRow[]>([])
@@ -61,21 +66,7 @@ export default function SupremeAdminDashboard() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">SMART <span>BILLING</span> · Supreme Admin</div>
-        <nav>
-          <span>{session?.fullName}</span>
-          <button className="linklike" onClick={() => setSession(null)}>Sign out</button>
-        </nav>
-      </header>
-      <main className="content">
-        <div className="tabs">
-          <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Overview</button>
-          <button className={tab === 'devices' ? 'active' : ''} onClick={() => setTab('devices')}>Device alerts</button>
-          <button className={tab === 'tenants' ? 'active' : ''} onClick={() => setTab('tenants')}>Tenants</button>
-        </div>
-
+    <AppLayout brandSuffix="Supreme Admin" navItems={NAV_ITEMS} activeKey={tab} onNavigate={(key) => setTab(key as typeof tab)}>
         {tab === 'overview' && (
           <div className="card">
             <h2>Platform overview</h2>
@@ -91,9 +82,9 @@ export default function SupremeAdminDashboard() {
                   ['Total receipts', stats.total_receipts],
                   ['Platform revenue collected', stats.platform_revenue_collected.toLocaleString()],
                 ] as [string, string | number][]).map(([label, value]) => (
-                  <div key={label} style={{ border: '1px solid #eee', borderRadius: 8, padding: 14 }}>
-                    <div className="muted" style={{ fontSize: 12, textTransform: 'uppercase' }}>{label}</div>
-                    <div style={{ fontSize: 24, fontWeight: 700 }}>{value}</div>
+                  <div className="stat-tile" key={label}>
+                    <div className="label">{label}</div>
+                    <div className="value">{value}</div>
                   </div>
                 ))}
               </div>
@@ -156,7 +147,6 @@ export default function SupremeAdminDashboard() {
             </table>
           </div>
         )}
-      </main>
-    </div>
+    </AppLayout>
   )
 }

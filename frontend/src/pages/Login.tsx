@@ -30,30 +30,28 @@ export default function Login() {
   }
 
   return (
-    <div className="app-shell">
-      <main className="content" style={{ maxWidth: 420, marginTop: 60 }}>
-        <div className="card">
-          <h1>Smart Billing</h1>
-          <p className="muted">Sign in to your workspace.</p>
-          <form onSubmit={onSubmit}>
-            <div className="field">
-              <label>Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
-            <div className="field">
-              <label>Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-            </div>
-            {error && <p className="error-text">{error}</p>}
-            <button className="btn" type="submit" disabled={loading}>
-              {loading ? 'Signing in…' : 'Sign in'}
-            </button>
-          </form>
-          <p className="muted" style={{ marginTop: 16 }}>
-            New tenant? <a href="/subscribe">Start a subscription</a>
-          </p>
-        </div>
-      </main>
+    <div className="auth-shell">
+      <div className="auth-card card">
+        <h1>Smart Billing</h1>
+        <p className="muted">Sign in to your workspace.</p>
+        <form onSubmit={onSubmit}>
+          <div className="field">
+            <label>Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </div>
+          {error && <p className="error-text">{error}</p>}
+          <button className="btn" type="submit" disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+        <p className="muted" style={{ marginTop: 16 }}>
+          New tenant? <a href="/subscribe">Start a subscription</a>
+        </p>
+      </div>
     </div>
   )
 }
