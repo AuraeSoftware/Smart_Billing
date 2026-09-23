@@ -32,7 +32,8 @@ class Tenant(Base):
     # A tenant cannot be marked ACTIVE until its branding step (logo/header/footer)
     # is complete — enforced in the subscription service, not just the UI.
     subscription_status: Mapped[SubscriptionStatus] = mapped_column(
-        Enum(SubscriptionStatus), default=SubscriptionStatus.PENDING_ONBOARDING, nullable=False
+        Enum(SubscriptionStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=SubscriptionStatus.PENDING_ONBOARDING, nullable=False,
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
