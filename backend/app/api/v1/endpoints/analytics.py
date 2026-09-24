@@ -18,6 +18,13 @@ from app.models.user import User
 router = APIRouter()
 
 
+def _status_value(status) -> str:
+    """SubscriptionStatus is a str-Enum bound by .value at the DB level, but a
+    row loaded via the ORM gives back the Python enum member — normalize both
+    shapes to the plain string the frontend expects."""
+    return status.value if hasattr(status, "value") else str(status)
+
+
 class PlatformAnalyticsOut(BaseModel):
     total_tenants: int
     active_tenants: int
@@ -44,6 +51,69 @@ def platform_analytics(db: Session = Depends(get_db), _: User = Depends(require_
         total_receipts=db.query(func.count(Receipt.id)).scalar() or 0,
         platform_revenue_collected=float(revenue),
     )
+
+
+class TenantRevenueRow(BaseModel):
+    tenant_id: str
+    name: str
+    slug: str
+    contact_email: str
+    subscription_status: str
+    created_at: str
+    invoice_count: int
+    quotation_count: int
+    receipt_count: int
+    revenue_collected: float
+
+
+@router.get("/platform/tenants", response_model=list[TenantRevenueRow])
+def platform_tenant_breakdown(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    """Per-tenant revenue + document counts for the Supreme Admin command
+    center's leaderboard table and revenue-comparison chart — the platform
+    equivalent of the branch/franchisee auditing table."""
+    tenants = db.query(Tenant).order_by(Tenant.created_at.desc()).all()
+    rows: list[TenantRevenueRow] = []
+    for t in tenants:
+        revenue = (
+            db.query(func.coalesce(func.sum(Receipt.amount), 0))
+            .filter(Receipt.tenant_id == t.id)
+            .scalar() or 0
+        )
+        rows.append(TenantRevenueRow(
+            tenant_id=str(t.id),
+            name=t.name,
+            slug=t.slug,
+            contact_email=t.contact_email,
+            subscription_status=_status_value(t.subscription_status),
+            created_at=t.created_at.isoformat(),
+            invoice_count=db.query(func.count(Invoice.id)).filter(Invoice.tenant_id == t.id).scalar() or 0,
+            quotation_count=db.query(func.count(Quotation.id)).filter(Quotation.tenant_id == t.id).scalar() or 0,
+            receipt_count=db.query(func.count(Receipt.id)).filter(Receipt.tenant_id == t.id).scalar() or 0,
+            revenue_collected=float(revenue),
+        ))
+    return rows
+
+
+class RevenueTrendPoint(BaseModel):
+    year: int
+    month: int
+    label: str
+    revenue: float
+
+
+@router.get("/platform/revenue-trend", response_model=list[RevenueTrendPoint])
+def platform_revenue_trend(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    """Monthly platform revenue, across every tenant, for the Supreme Admin
+    command center's revenue-trend chart and its Year/Month filter."""
+    rows = db.query(Receipt.received_at, Receipt.amount).all()
+    buckets: dict[tuple[int, int], float] = {}
+    for received_at, amount in rows:
+        key = (received_at.year, received_at.month)
+        buckets[key] = buckets.get(key, 0.0) + float(amount)
+    return [
+        RevenueTrendPoint(year=y, month=m, label=date(y, m, 1).strftime("%b %Y"), revenue=round(v, 2))
+        for (y, m), v in sorted(buckets.items())
+    ]
 
 
 class TenantAnalyticsOut(BaseModel):
