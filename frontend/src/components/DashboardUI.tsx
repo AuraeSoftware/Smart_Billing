@@ -104,6 +104,64 @@ export function StatusChip({ status }: { status: string }) {
   return <span className={`status-chip status-chip-${tone}`}>{status.replaceAll('_', ' ')}</span>
 }
 
+/** Detail popup — same role as Smart Garage's row/stat-card click-through:
+ * a read-only breakdown, never a form. Closes on backdrop click or ✕. */
+export function Modal({
+  title,
+  open,
+  onClose,
+  children,
+  maxWidth = 480,
+}: {
+  title?: ReactNode
+  open: boolean
+  onClose: () => void
+  children: ReactNode
+  maxWidth?: number
+}) {
+  if (!open) return null
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, backdropFilter: 'blur(6px)',
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{
+        background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 16, padding: 24,
+        width: '100%', maxWidth, boxShadow: 'var(--shadow-lg)', maxHeight: '90vh', overflowY: 'auto',
+      }}>
+        {title && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{title}</h3>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-3)',
+                cursor: 'pointer', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** One label/value row inside a Modal breakdown. */
+export function DetailRow({ label, value, strong }: { label: string; value: ReactNode; strong?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
+      <span style={{ fontSize: 13, color: 'var(--text-3)' }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: strong ? 800 : 700, color: strong ? 'var(--green)' : 'var(--text)', textAlign: 'right' }}>{value}</span>
+    </div>
+  )
+}
+
 export function EmptyState({ icon = '○', title, sub }: { icon?: ReactNode; title: string; sub?: string }) {
   return (
     <div style={{ textAlign: 'center', padding: '40px 16px' }}>
