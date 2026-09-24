@@ -182,6 +182,7 @@ class SubscriptionPlanOut(BaseModel):
     has_api_access: bool
     has_advanced_reports: bool
     has_multi_currency: bool
+    is_trial: bool = False
     tenant_count: int = 0
 
     class Config:
@@ -202,6 +203,7 @@ class SubscriptionPlanIn(BaseModel):
     has_api_access: bool = False
     has_advanced_reports: bool = False
     has_multi_currency: bool = False
+    is_trial: bool = False
 
 
 def _plan_out(db: Session, p: SubscriptionPlan) -> SubscriptionPlanOut:
@@ -212,7 +214,7 @@ def _plan_out(db: Session, p: SubscriptionPlan) -> SubscriptionPlanOut:
         max_invoices_per_month=p.max_invoices_per_month, is_active=p.is_active,
         color=p.color, has_priority_support=p.has_priority_support, has_api_access=p.has_api_access,
         has_advanced_reports=p.has_advanced_reports, has_multi_currency=p.has_multi_currency,
-        tenant_count=count,
+        is_trial=p.is_trial, tenant_count=count,
     )
 
 

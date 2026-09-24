@@ -44,7 +44,7 @@ export default function SubscribeBranding() {
     <div className="auth-shell">
       <div className="auth-card auth-wide card">
         <h1>Add your branding</h1>
-        <p className="muted">Step 2 of 2 — required before your workspace activates. This appears on every invoice, quotation, and receipt you send.</p>
+        <p className="muted">Final step — required before your workspace activates. This appears on every invoice, quotation, and receipt you send.</p>
         <form onSubmit={onSubmit}>
           <div className="field">
             <label>Logo</label>

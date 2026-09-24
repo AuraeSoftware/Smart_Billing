@@ -35,6 +35,7 @@ class PublicPlanOut(BaseModel):
     has_api_access: bool
     has_advanced_reports: bool
     has_multi_currency: bool
+    is_trial: bool
 
     class Config:
         from_attributes = True

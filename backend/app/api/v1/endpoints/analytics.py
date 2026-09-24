@@ -127,9 +127,15 @@ class TenantRevenueRow(BaseModel):
     contact_email: str
     subscription_status: str
     created_at: str
-    # Plan-usage tracking rather than the tenant's own business figures —
-    # Aurae tracks the Super Admin/plan relationship, not client revenue or
-    # document counts (those are the tenant's own business data).
+    # Kept for the Overview command center's revenue leaderboard/chart,
+    # which existed before the plan-usage feature and still needs it.
+    invoice_count: int
+    quotation_count: int
+    receipt_count: int
+    revenue_collected: float
+    # Plan-usage tracking — added for the Reports and Super Admins pages,
+    # which show this instead of the fields above (Aurae tracks the plan
+    # relationship there, not the tenant's own business figures).
     plan_name: str | None
     invoices_used: int
     invoices_limit: int | None
@@ -140,15 +146,19 @@ class TenantRevenueRow(BaseModel):
 
 @router.get("/platform/tenants", response_model=list[TenantRevenueRow])
 def platform_tenant_breakdown(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
-    """Per-tenant plan/usage breakdown for the Supreme Admin's Reports page —
-    which Super Admin is on which plan, and how close they are to their
-    monthly invoice limit. Deliberately excludes each tenant's own revenue
-    and document counts, which are their business data, not Aurae's."""
+    """Per-tenant revenue + document counts (Overview's leaderboard) plus
+    plan/usage tracking (Reports and Super Admins pages) in one row, since
+    both views are built from the same per-tenant sweep."""
     tenants = db.query(Tenant).order_by(Tenant.created_at.desc()).all()
     rows: list[TenantRevenueRow] = []
     for t in tenants:
         plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == t.subscription_plan_id).one_or_none() if t.subscription_plan_id else None
         usage = usage_snapshot(db, t.id, plan)
+        revenue = (
+            db.query(func.coalesce(func.sum(Receipt.amount), 0))
+            .filter(Receipt.tenant_id == t.id)
+            .scalar() or 0
+        )
         rows.append(TenantRevenueRow(
             tenant_id=str(t.id),
             name=t.name,
@@ -156,6 +166,10 @@ def platform_tenant_breakdown(db: Session = Depends(get_db), _: User = Depends(r
             contact_email=t.contact_email,
             subscription_status=_status_value(t.subscription_status),
             created_at=t.created_at.isoformat(),
+            invoice_count=db.query(func.count(Invoice.id)).filter(Invoice.tenant_id == t.id).scalar() or 0,
+            quotation_count=db.query(func.count(Quotation.id)).filter(Quotation.tenant_id == t.id).scalar() or 0,
+            receipt_count=db.query(func.count(Receipt.id)).filter(Receipt.tenant_id == t.id).scalar() or 0,
+            revenue_collected=float(revenue),
             plan_name=plan.name if plan else None,
             **usage,
         ))

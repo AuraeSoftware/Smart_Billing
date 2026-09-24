@@ -54,6 +54,7 @@ interface PlanRow {
   has_api_access: boolean
   has_advanced_reports: boolean
   has_multi_currency: boolean
+  is_trial: boolean
   tenant_count: number
 }
 
@@ -290,6 +291,7 @@ const emptyPlanForm = {
   name: '', description: '', currency: 'INR', price: 0, billing_cycle: 'monthly',
   max_users: 5, max_invoices_per_month: 100, is_active: true, color: PLAN_COLORS[0],
   has_priority_support: false, has_api_access: false, has_advanced_reports: false, has_multi_currency: false,
+  is_trial: false,
 }
 
 export function SubscriptionPlansPage() {
@@ -318,6 +320,7 @@ export function SubscriptionPlansPage() {
       billing_cycle: p.billing_cycle, max_users: p.max_users, max_invoices_per_month: p.max_invoices_per_month,
       is_active: p.is_active, color: p.color, has_priority_support: p.has_priority_support,
       has_api_access: p.has_api_access, has_advanced_reports: p.has_advanced_reports, has_multi_currency: p.has_multi_currency,
+      is_trial: p.is_trial,
     })
   }
 
@@ -360,6 +363,11 @@ export function SubscriptionPlansPage() {
       </div>
       <label>Max invoices / month<input type="number" value={form.max_invoices_per_month} onChange={(e) => setForm({ ...form, max_invoices_per_month: Number(e.target.value) })} /></label>
       <label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} /></label>
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', flexDirection: 'row' }}>
+        <input type="checkbox" checked={form.is_trial} onChange={(e) => setForm({ ...form, is_trial: e.target.checked })} style={{ width: 'auto' }} />
+        Free trial plan — skips payment at signup, limited to one use per company
+      </label>
 
       <div>
         <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Included features</label>
@@ -415,7 +423,10 @@ export function SubscriptionPlansPage() {
                     <span style={{ fontSize: 20, fontWeight: 900, color: p.color }}>{p.currency} {p.price.toFixed(0)}</span>
                     <span style={{ fontSize: 13, color: 'var(--text-3)' }}>/{p.billing_cycle}</span>
                   </div>
-                  {!p.is_active && <span className="status-chip status-chip-red" style={{ marginTop: 6, display: 'inline-block' }}>Inactive</span>}
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                    {p.is_trial && <span className="status-chip status-chip-blue" style={{ display: 'inline-block' }}>Trial · 1 per company</span>}
+                    {!p.is_active && <span className="status-chip status-chip-red" style={{ display: 'inline-block' }}>Inactive</span>}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button className="btn ghost" style={{ padding: '6px 10px' }} onClick={() => openEdit(p)}>Edit</button>

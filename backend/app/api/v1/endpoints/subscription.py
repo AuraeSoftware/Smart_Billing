@@ -7,8 +7,10 @@ A tenant cannot be used (no other endpoint accepts its data) until step 2 is don
 """
 import os
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -19,9 +21,13 @@ from app.models.tenant import Tenant
 from app.models.user import User, UserRole
 from app.models.branding import TenantBranding
 from app.models.subscription_plan import SubscriptionPlan
+from app.models.payment import SubscriptionPayment
+from app.models.payment_settings import PlatformPaymentSettings
 from app.schemas.tenant import TenantSignupRequest, TenantOut, BrandingOut, PublicPlanOut
 from app.services.subscription import activate_tenant, OnboardingIncompleteError
 from app.services.subscription_events import log_subscription_event
+from app.services.trial import assert_trial_available, claim_trial, TrialAlreadyUsedError
+from app.services.razorpay_client import create_order, verify_signature, RazorpayError
 
 router = APIRouter()
 
@@ -49,6 +55,19 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
     if plan is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Please select a valid subscription plan.")
 
+    # Trial plans are capped to one claim per company — checked before the
+    # tenant is created so a rejected signup never leaves a half-created
+    # tenant behind. See app/services/trial.py for what "one company" means
+    # in the absence of real business-registration verification.
+    trial_company_key = None
+    if plan.is_trial:
+        try:
+            trial_company_key = assert_trial_available(
+                db, business_name=payload.tenant_name, contact_email=payload.contact_email,
+            )
+        except TrialAlreadyUsedError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
     tenant = Tenant(
         name=payload.tenant_name, slug=payload.slug, contact_email=payload.contact_email,
         currency=plan.currency, subscription_plan_id=plan.id,
@@ -63,6 +82,11 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
     )
     db.add(super_admin)
     db.add(TenantBranding(tenant_id=tenant.id))  # placeholder row, filled by /branding
+    if trial_company_key is not None:
+        claim_trial(
+            db, company_key=trial_company_key, tenant_id=tenant.id,
+            business_name=payload.tenant_name, contact_email=payload.contact_email,
+        )
     log_subscription_event(
         db, tenant=tenant, event_type="signed_up",
         new_value="pending_onboarding", note=f"Tenant signup by {payload.super_admin_full_name}",
@@ -74,6 +98,143 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(tenant)
     return tenant
+
+
+# ---------------------------------------------------------------------------
+# Subscription payment — a paid plan must clear this before the workspace can
+# be activated (see activate_tenant()). The signup page routes straight here
+# for a paid plan, and straight to branding for a trial plan.
+# ---------------------------------------------------------------------------
+
+class PaymentOrderOut(BaseModel):
+    order_id: str
+    amount: int  # minor currency units (paise for INR), what Razorpay Checkout expects
+    currency: str
+    key_id: str
+    plan_name: str
+
+
+class PaymentVerifyIn(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+class PaymentStatusOut(BaseModel):
+    status: str  # not_required | pending | paid | failed
+
+
+def _tenant_or_404(db: Session, tenant_id: uuid.UUID) -> Tenant:
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one_or_none()
+    if tenant is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant not found.")
+    return tenant
+
+
+@router.post("/{tenant_id}/payment/create-order", response_model=PaymentOrderOut)
+def create_payment_order(tenant_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Called from the payment step right after signup, before branding —
+    unauthenticated like the rest of onboarding, since the Super Admin has
+    no token yet at this point."""
+    tenant = _tenant_or_404(db, tenant_id)
+    if tenant.subscription_plan_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No plan selected for this workspace.")
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none()
+    if plan is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The selected plan no longer exists.")
+    if plan.is_trial:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The trial plan does not require payment.")
+
+    already_paid = db.query(SubscriptionPayment).filter(
+        SubscriptionPayment.tenant_id == tenant.id, SubscriptionPayment.status == "paid",
+    ).one_or_none()
+    if already_paid is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Payment has already been completed for this workspace.")
+
+    gateway = db.query(PlatformPaymentSettings).first()
+    if gateway is None or not gateway.razorpay_key_id or not gateway.razorpay_key_secret:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Online payment isn't set up yet. Please contact Aurae Software Solutions LLP to complete your subscription.",
+        )
+
+    amount_minor = int(round(float(plan.price) * 100))
+    try:
+        order = create_order(
+            key_id=gateway.razorpay_key_id, key_secret=gateway.razorpay_key_secret,
+            amount_minor=amount_minor, currency=plan.currency, receipt=f"tenant-{tenant.id}",
+        )
+    except RazorpayError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    payment = SubscriptionPayment(
+        tenant_id=tenant.id, subscription_plan_id=plan.id, amount=plan.price,
+        currency=plan.currency, gateway="razorpay", gateway_order_id=order["id"], status="created",
+    )
+    db.add(payment)
+    db.commit()
+
+    return PaymentOrderOut(
+        order_id=order["id"], amount=amount_minor, currency=plan.currency,
+        key_id=gateway.razorpay_key_id, plan_name=plan.name,
+    )
+
+
+@router.post("/{tenant_id}/payment/verify", response_model=PaymentStatusOut)
+def verify_payment_order(tenant_id: uuid.UUID, payload: PaymentVerifyIn, db: Session = Depends(get_db)):
+    tenant = _tenant_or_404(db, tenant_id)
+    payment = db.query(SubscriptionPayment).filter(
+        SubscriptionPayment.tenant_id == tenant_id,
+        SubscriptionPayment.gateway_order_id == payload.razorpay_order_id,
+    ).one_or_none()
+    if payment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No matching payment order found — start the payment again.")
+    if payment.status == "paid":
+        return PaymentStatusOut(status="paid")
+
+    gateway = db.query(PlatformPaymentSettings).first()
+    if gateway is None or not gateway.razorpay_key_secret:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Online payment isn't set up yet.")
+
+    ok = verify_signature(
+        key_secret=gateway.razorpay_key_secret, order_id=payload.razorpay_order_id,
+        payment_id=payload.razorpay_payment_id, signature=payload.razorpay_signature,
+    )
+    if not ok:
+        payment.status = "failed"
+        db.add(payment)
+        db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Payment verification failed. Please try again.")
+
+    payment.status = "paid"
+    payment.gateway_payment_id = payload.razorpay_payment_id
+    payment.gateway_signature = payload.razorpay_signature
+    payment.paid_at = datetime.now(timezone.utc)
+    db.add(payment)
+    log_subscription_event(
+        db, tenant=tenant, event_type="payment_completed",
+        new_value=f"{payment.currency} {payment.amount}", note="Subscription payment verified via Razorpay",
+    )
+    db.commit()
+    return PaymentStatusOut(status="paid")
+
+
+@router.get("/{tenant_id}/payment/status", response_model=PaymentStatusOut)
+def payment_status(tenant_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Lets the payment page resume correctly on refresh, and lets a trial
+    tenant's flow (which never creates a payment row) report itself as not
+    needing one."""
+    tenant = _tenant_or_404(db, tenant_id)
+    plan = (
+        db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none()
+        if tenant.subscription_plan_id else None
+    )
+    if plan is not None and plan.is_trial:
+        return PaymentStatusOut(status="not_required")
+    paid = db.query(SubscriptionPayment).filter(
+        SubscriptionPayment.tenant_id == tenant_id, SubscriptionPayment.status == "paid",
+    ).one_or_none()
+    return PaymentStatusOut(status="paid" if paid else "pending")
 
 
 def _save_upload(tenant_id: uuid.UUID, kind: str, file: UploadFile) -> str:

@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.models.tenant import Tenant, SubscriptionStatus
 from app.models.branding import TenantBranding
+from app.models.subscription_plan import SubscriptionPlan
+from app.models.payment import SubscriptionPayment
 
 
 class OnboardingIncompleteError(Exception):
@@ -27,6 +29,19 @@ def activate_tenant(db: Session, *, tenant: Tenant) -> Tenant:
         raise OnboardingIncompleteError(
             "A subscription plan must be selected before the tenant workspace can be activated."
         )
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none()
+    # Paid plans must clear a successful subscription payment before the
+    # workspace goes live — the same hard gate branding already is. Trial
+    # plans skip this: they never go through the payment step at signup.
+    if plan is not None and not plan.is_trial:
+        paid = db.query(SubscriptionPayment).filter(
+            SubscriptionPayment.tenant_id == tenant.id,
+            SubscriptionPayment.status == "paid",
+        ).one_or_none()
+        if paid is None:
+            raise OnboardingIncompleteError(
+                "Payment must be completed before the workspace can be activated."
+            )
     tenant.subscription_status = SubscriptionStatus.ACTIVE
     db.add(tenant)
     return tenant

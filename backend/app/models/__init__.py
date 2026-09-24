@@ -6,6 +6,8 @@ from app.models.device import DeviceSession, DeviceEvent  # noqa: F401
 from app.models.branding import TenantBranding  # noqa: F401
 from app.models.subscription_plan import SubscriptionPlan  # noqa: F401
 from app.models.subscription_event import TenantSubscriptionEvent  # noqa: F401
+from app.models.trial_claim import TrialClaim  # noqa: F401
+from app.models.payment import SubscriptionPayment  # noqa: F401
 from app.models.payment_settings import PlatformPaymentSettings, TenantPaymentGateway  # noqa: F401
 from app.models.currency_config import CurrencyRate, PlanCurrencyOverride  # noqa: F401
 from app.models.catalog import CatalogItem  # noqa: F401

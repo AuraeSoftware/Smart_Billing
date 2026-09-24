@@ -29,6 +29,10 @@ class SubscriptionPlan(Base):
     max_invoices_per_month: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # Marks this as the free trial tier. A trial plan skips the payment step
+    # at signup, but is capped to one claim per company — see TrialClaim.
+    is_trial: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     # Card accent + feature flags — mirrors Smart Garage 360's plan cards
     # (theme color swatch + a checklist of included modules).
     color: Mapped[str] = mapped_column(String(9), nullable=False, default="#da1a31")

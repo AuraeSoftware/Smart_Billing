@@ -16,6 +16,7 @@ interface PublicPlan {
   has_api_access: boolean
   has_advanced_reports: boolean
   has_multi_currency: boolean
+  is_trial: boolean
 }
 
 /** Step 1 of subscription onboarding (SOW 3.4): business details, your
@@ -61,7 +62,15 @@ export default function SubscribeSignup() {
         method: 'POST',
         body: JSON.stringify(form),
       })
-      navigate(`/subscribe/${tenant.id}/branding`)
+      // A paid plan needs a completed payment before the workspace can be
+      // activated (enforced server-side too) — send them to pay first. A
+      // trial plan skips straight to branding, as before.
+      const chosenPlan = plans.find((p) => p.id === form.subscription_plan_id)
+      if (chosenPlan && !chosenPlan.is_trial) {
+        navigate(`/subscribe/${tenant.id}/payment`)
+      } else {
+        navigate(`/subscribe/${tenant.id}/branding`)
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.')
     } finally {
@@ -73,7 +82,7 @@ export default function SubscribeSignup() {
     <div className="auth-shell">
       <div className="auth-card auth-wide card">
         <h1>Start your Smart Billing subscription</h1>
-        <p className="muted">Step 1 of 2 — business details. Branding comes next and is required before your workspace goes live.</p>
+        <p className="muted">Step 1 — business details. Paid plans continue to payment next; the trial plan skips straight to branding. Branding is required before your workspace goes live.</p>
         <form onSubmit={onSubmit}>
           <div className="field">
             <label>Business name</label>
@@ -107,9 +116,17 @@ export default function SubscribeSignup() {
                       background: selected ? `${p.color}10` : 'var(--bg-2)',
                     }}
                   >
-                    <div style={{ fontWeight: 800, fontSize: 15, color: p.color, marginBottom: 4 }}>{p.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: p.color }}>{p.name}</div>
+                      {p.is_trial && (
+                        <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 6px', borderRadius: 6, background: 'rgba(37, 99, 235, 0.12)', color: 'var(--blue)' }}>
+                          TRIAL · 1 per company
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 18, fontWeight: 900 }}>
-                      {p.currency} {p.price.toFixed(0)}<span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-3)' }}>/{p.billing_cycle}</span>
+                      {p.is_trial ? 'Free' : `${p.currency} ${p.price.toFixed(0)}`}
+                      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-3)' }}>/{p.billing_cycle}</span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
                       {p.max_invoices_per_month} invoices/mo · {p.max_users} users
