@@ -5,7 +5,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.api.deps import require_tenant_staff, current_tenant_id
+from app.api.deps import require_tenant_staff, current_tenant_id, require_active_tenant
 from app.models.billing import Receipt, Invoice, InvoiceStatus
 from app.models.branding import TenantBranding
 from app.models.tenant import Tenant
@@ -22,7 +22,7 @@ def create_receipt(
     payload: ReceiptCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_tenant_staff),
-    tenant_id: str = Depends(current_tenant_id),
+    tenant_id: str = Depends(require_active_tenant),
 ):
     invoice = db.query(Invoice).filter(Invoice.id == payload.invoice_id, Invoice.tenant_id == tenant_id).one_or_none()
     if invoice is None:

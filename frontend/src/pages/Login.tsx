@@ -18,7 +18,7 @@ export default function Login() {
     setLoading(true)
     try {
       const res = await login(email, password)
-      setSession({ token: res.access_token, role: res.role as never, tenantId: res.tenant_id, fullName: res.full_name })
+      setSession({ token: res.access_token, role: res.role as never, tenantId: res.tenant_id, fullName: res.full_name, tenantStatus: res.tenant_status })
       navigate(res.role === 'supreme_admin' ? '/admin' : '/app')
     } catch (err) {
       // Device-binding rejections (SOW 3.3) surface here with a clear message,

@@ -14,3 +14,4 @@ class TokenResponse(BaseModel):
     role: str
     tenant_id: str | None = None
     full_name: str
+    tenant_status: str | None = None

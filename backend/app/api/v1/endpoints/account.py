@@ -15,6 +15,7 @@ from app.models.tenant import Tenant
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.payment_settings import PlatformPaymentSettings, TenantPaymentGateway
 from app.services.device_binding import deregister_device
+from app.services.usage import usage_snapshot
 
 router = APIRouter()
 
@@ -136,6 +137,34 @@ def update_payment_gateway(
         razorpay_key_secret=_MASK if gw.razorpay_key_secret else None,
         razorpay_webhook_secret=_MASK if gw.razorpay_webhook_secret else None,
     )
+
+
+class UsageOut(BaseModel):
+    plan_name: str | None
+    invoices_used: int
+    invoices_limit: int | None
+    usage_percent: float
+    days_until_reset: int
+    warning_level: str  # none | warning | critical | limit_reached
+
+
+@router.get("/usage", response_model=UsageOut)
+def get_usage(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_super_admin),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    """Powers the Super Admin dashboard's usage banner — how many invoices
+    they've created this calendar month against their plan's monthly limit,
+    and how many days remain until it resets. Warned at 80%/95%, blocked at
+    100% (the actual block lives in require_active_tenant/create_invoice;
+    this just reports the same numbers so the UI can warn ahead of time)."""
+    tenant = db.query(Tenant).filter(Tenant.id == uuid.UUID(tenant_id)).one_or_none()
+    if tenant is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant not found.")
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none() if tenant.subscription_plan_id else None
+    snap = usage_snapshot(db, tenant.id, plan)
+    return UsageOut(plan_name=plan.name if plan else None, **snap)
 
 
 class MyPlanOut(BaseModel):

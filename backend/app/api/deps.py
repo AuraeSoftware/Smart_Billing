@@ -8,6 +8,7 @@ from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.models.device import DeviceSession
+from app.models.tenant import Tenant, SubscriptionStatus
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -56,3 +57,19 @@ def current_tenant_id(user: User = Depends(get_current_user)) -> str:
     if user.tenant_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This account is not scoped to a tenant.")
     return str(user.tenant_id)
+
+
+def require_active_tenant(db: Session = Depends(get_db), tenant_id: str = Depends(current_tenant_id)) -> str:
+    """Gate for document-creation endpoints (invoices/quotations/receipts):
+    a tenant that hasn't finished onboarding (branding + plan) yet, or has
+    been suspended/cancelled by the Supreme Admin, can't create new
+    documents — even though a Super Admin whose credential is otherwise
+    fine can still log in and see a "finish setup" screen."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one_or_none()
+    if tenant is None or tenant.subscription_status != SubscriptionStatus.ACTIVE:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Your workspace isn't fully active yet — finish onboarding (branding + plan), "
+            "or contact Aurae Software Solutions if you believe this is a mistake.",
+        )
+    return tenant_id

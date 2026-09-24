@@ -18,11 +18,23 @@ from app.api.deps import require_super_admin, current_tenant_id
 from app.models.tenant import Tenant
 from app.models.user import User, UserRole
 from app.models.branding import TenantBranding
-from app.schemas.tenant import TenantSignupRequest, TenantOut, BrandingOut
+from app.models.subscription_plan import SubscriptionPlan
+from app.schemas.tenant import TenantSignupRequest, TenantOut, BrandingOut, PublicPlanOut
 from app.services.subscription import activate_tenant, OnboardingIncompleteError
 from app.services.subscription_events import log_subscription_event
 
 router = APIRouter()
+
+
+@router.get("/plans", response_model=list[PublicPlanOut])
+def list_public_plans(db: Session = Depends(get_db)):
+    """Unauthenticated — the signup page's plan picker reads from here."""
+    return (
+        db.query(SubscriptionPlan)
+        .filter(SubscriptionPlan.is_active.is_(True))
+        .order_by(SubscriptionPlan.price)
+        .all()
+    )
 
 
 @router.post("/signup", response_model=TenantOut, status_code=status.HTTP_201_CREATED)
@@ -31,8 +43,16 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
         raise HTTPException(status.HTTP_409_CONFLICT, "That slug is already taken.")
     if db.query(User).filter(User.email == payload.super_admin_email).one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, "That email is already registered.")
+    plan = db.query(SubscriptionPlan).filter(
+        SubscriptionPlan.id == payload.subscription_plan_id, SubscriptionPlan.is_active.is_(True),
+    ).one_or_none()
+    if plan is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Please select a valid subscription plan.")
 
-    tenant = Tenant(name=payload.tenant_name, slug=payload.slug, contact_email=payload.contact_email)
+    tenant = Tenant(
+        name=payload.tenant_name, slug=payload.slug, contact_email=payload.contact_email,
+        currency=plan.currency, subscription_plan_id=plan.id,
+    )
     db.add(tenant)
     db.flush()
 
@@ -46,6 +66,10 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
     log_subscription_event(
         db, tenant=tenant, event_type="signed_up",
         new_value="pending_onboarding", note=f"Tenant signup by {payload.super_admin_full_name}",
+    )
+    log_subscription_event(
+        db, tenant=tenant, event_type="plan_changed",
+        old_value="none", new_value=plan.name, note="Selected at signup",
     )
     db.commit()
     db.refresh(tenant)

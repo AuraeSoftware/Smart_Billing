@@ -33,6 +33,11 @@ interface SuperAdminRow {
   tenant_currency: string | null
   plan_name: string | null
   created_at: string
+  invoices_used: number
+  invoices_limit: number | null
+  usage_percent: number
+  days_until_reset: number
+  warning_level: 'none' | 'warning' | 'critical' | 'limit_reached'
 }
 interface PlanRow {
   id: string
@@ -174,6 +179,19 @@ export function SuperAdminsPage() {
                     <span><span style={{ color: 'var(--text-3)' }}>Plan: </span><span style={{ fontWeight: 700 }}>{r.plan_name || 'No plan'}</span></span>
                     <span style={{ color: 'var(--text-3)' }}>{r.tenant_currency}</span>
                   </div>
+                  {r.invoices_limit != null && (
+                    <div style={{
+                      background: 'var(--bg-3)', border: `1px solid ${r.warning_level === 'none' ? 'var(--border)' : 'var(--amber)'}`,
+                      borderRadius: 8, padding: '7px 10px', fontSize: 12, display: 'flex', justifyContent: 'space-between',
+                    }}>
+                      <span><span style={{ color: 'var(--text-3)' }}>Usage: </span>
+                        <span style={{ fontWeight: 700, color: r.warning_level === 'none' ? 'var(--text)' : (r.warning_level === 'warning' ? 'var(--amber)' : 'var(--red)') }}>
+                          {r.invoices_used}/{r.invoices_limit} invoices
+                        </span>
+                      </span>
+                      <span style={{ color: 'var(--text-3)' }}>renews in {r.days_until_reset}d</span>
+                    </div>
+                  )}
                 </div>
 
                 {expandedId === r.id && (
@@ -181,6 +199,9 @@ export function SuperAdminsPage() {
                     <DetailRow label="Email" value={r.email} />
                     <DetailRow label="Tenant status" value={r.tenant_status || '—'} />
                     <DetailRow label="Currency" value={r.tenant_currency || '—'} />
+                    {r.invoices_limit != null && (
+                      <DetailRow label="Monthly usage" value={`${r.invoices_used}/${r.invoices_limit} invoices (${r.usage_percent.toFixed(0)}%)`} />
+                    )}
                     <DetailRow label="Onboarded" value={new Date(r.created_at).toLocaleDateString()} />
                   </div>
                 )}
@@ -857,46 +878,62 @@ export function CredentialsPage() {
 }
 
 // ============================================================================
-// Reports — platform-wide revenue and document activity by tenant, with a
-// year/month filter matching the Overview command center's filter bar.
+// Reports — plan/usage tracking by tenant. Deliberately does not show each
+// tenant's own invoice/quotation/receipt counts or revenue — that's the
+// tenant's own business data, not something Aurae needs to see. What Aurae
+// does need: which plan each Super Admin is on and how close they are to
+// its monthly invoice limit, so support/upgrade conversations happen before
+// a tenant gets blocked.
 // ============================================================================
 
-interface TenantRevenueRow {
+interface TenantUsageRow {
   tenant_id: string; name: string; slug: string; contact_email: string
   subscription_status: string; created_at: string
-  invoice_count: number; quotation_count: number; receipt_count: number; revenue_collected: number
+  plan_name: string | null
+  invoices_used: number; invoices_limit: number | null
+  usage_percent: number; days_until_reset: number
+  warning_level: 'none' | 'warning' | 'critical' | 'limit_reached'
+}
+
+const WARNING_COLORS: Record<string, string> = {
+  none: 'var(--text-3)', warning: 'var(--amber)', critical: 'var(--red)', limit_reached: 'var(--red)',
 }
 
 export function ReportsPage() {
-  const [rows, setRows] = useState<TenantRevenueRow[]>([])
-  useEffect(() => { apiFetch<TenantRevenueRow[]>('/analytics/platform/tenants').then(setRows).catch(() => {}) }, [])
+  const [rows, setRows] = useState<TenantUsageRow[]>([])
+  useEffect(() => { apiFetch<TenantUsageRow[]>('/analytics/platform/tenants').then(setRows).catch(() => {}) }, [])
 
-  const totalRevenue = rows.reduce((s, r) => s + r.revenue_collected, 0)
-  const totalDocs = rows.reduce((s, r) => s + r.invoice_count + r.quotation_count + r.receipt_count, 0)
+  const atRisk = rows.filter((r) => r.warning_level === 'critical' || r.warning_level === 'limit_reached').length
+  const noPlan = rows.filter((r) => !r.plan_name).length
 
   return (
     <DashboardCard
       title="Reports"
-      subtitle="Platform-wide revenue and document activity, by tenant."
+      subtitle="Which plan each Super Admin is on, and how close they are to its monthly invoice limit."
       action={<button className="btn secondary" onClick={() => window.print()}>⬇ Export / Print</button>}
     >
       <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
-        <div><div className="muted">Total revenue</div><div style={{ fontSize: 20, fontWeight: 800 }}>{totalRevenue.toLocaleString(undefined, { style: 'currency', currency: 'INR' })}</div></div>
-        <div><div className="muted">Total documents</div><div style={{ fontSize: 20, fontWeight: 800 }}>{totalDocs}</div></div>
         <div><div className="muted">Tenants</div><div style={{ fontSize: 20, fontWeight: 800 }}>{rows.length}</div></div>
+        <div><div className="muted">Near or at their limit</div><div style={{ fontSize: 20, fontWeight: 800, color: atRisk > 0 ? 'var(--red)' : 'var(--text)' }}>{atRisk}</div></div>
+        <div><div className="muted">Without a plan</div><div style={{ fontSize: 20, fontWeight: 800, color: noPlan > 0 ? 'var(--amber)' : 'var(--text)' }}>{noPlan}</div></div>
       </div>
       {rows.length === 0 ? <EmptyState title="No data yet" /> : (
         <table>
-          <thead><tr><th>Tenant</th><th>Status</th><th>Invoices</th><th>Quotations</th><th>Receipts</th><th>Revenue</th></tr></thead>
+          <thead><tr><th>Tenant</th><th>Status</th><th>Plan</th><th>Invoices this month</th><th>Renews in</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.tenant_id}>
-                <td>{r.name}</td>
+                <td style={{ fontWeight: 700 }}>{r.name}</td>
                 <td><StatusChip status={r.subscription_status} /></td>
-                <td>{r.invoice_count}</td>
-                <td>{r.quotation_count}</td>
-                <td>{r.receipt_count}</td>
-                <td>{r.revenue_collected.toLocaleString(undefined, { style: 'currency', currency: 'INR' })}</td>
+                <td>{r.plan_name || <span className="muted">No plan</span>}</td>
+                <td>
+                  {r.invoices_limit ? (
+                    <span style={{ color: WARNING_COLORS[r.warning_level], fontWeight: r.warning_level === 'none' ? 400 : 700 }}>
+                      {r.invoices_used}/{r.invoices_limit} ({r.usage_percent.toFixed(0)}%)
+                    </span>
+                  ) : <span className="muted">—</span>}
+                </td>
+                <td className="muted">{r.invoices_limit ? `${r.days_until_reset} day${r.days_until_reset === 1 ? '' : 's'}` : '—'}</td>
               </tr>
             ))}
           </tbody>

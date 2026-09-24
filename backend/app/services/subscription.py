@@ -23,6 +23,10 @@ def activate_tenant(db: Session, *, tenant: Tenant) -> Tenant:
         raise OnboardingIncompleteError(
             "Logo, header, and footer must be uploaded before the tenant workspace can be activated."
         )
+    if tenant.subscription_plan_id is None:
+        raise OnboardingIncompleteError(
+            "A subscription plan must be selected before the tenant workspace can be activated."
+        )
     tenant.subscription_status = SubscriptionStatus.ACTIVE
     db.add(tenant)
     return tenant

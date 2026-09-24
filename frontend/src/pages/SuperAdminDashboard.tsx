@@ -5,6 +5,7 @@ import {
 } from 'recharts'
 import { apiFetch, ApiError } from '../lib/api'
 import { getCached, isOnline, queueOfflineCreate, syncAll, type DocType } from '../lib/offlineStore'
+import { useAuth } from '../lib/auth'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import AppLayout, { type NavItem } from '../components/AppLayout'
 import { DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS } from '../components/DashboardUI'
@@ -42,6 +43,7 @@ interface ReceiptRow { id: string; number: string; invoice_id: string; amount: n
 const emptyItem = (): LineItem => ({ description: '', quantity: 1, unit_price: 0, tax_rate_percent: 0, discount_percent: 0 })
 
 export default function SuperAdminDashboard() {
+  const { session } = useAuth()
   const [tab, setTab] = useState<
     'overview' | 'invoices' | 'quotations' | 'receipts' | 'customers' | 'team' | 'catalog' |
     'reports' | 'settings' | 'my-plan' | 'gst-manager' | 'credentials'
@@ -66,6 +68,20 @@ export default function SuperAdminDashboard() {
       onNavigate={(key) => setTab(key as typeof tab)}
       topbarExtra={<SyncStatusBadge />}
     >
+      {/* Shown on every tab — a workspace stuck in onboarding, or close to
+          its plan's monthly invoice limit, needs to see this wherever they
+          are, not just on Overview. */}
+      {session?.tenantStatus === 'pending_onboarding' && (
+        <div style={{ background: 'var(--highlight-dim)', border: '1px solid var(--amber)', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 800, color: 'var(--amber)', marginBottom: 2 }}>Finish setting up your workspace</div>
+            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Upload your branding (logo, header, footer) to activate invoicing, quotations, and receipts.</div>
+          </div>
+          <a className="btn amber" href={`/subscribe/${session.tenantId}/branding`}>Finish setup</a>
+        </div>
+      )}
+      <UsageBanner />
+
       {tab === 'overview' && (
         <OverviewPanel
           onNav={(key) => setTab(key)}
@@ -95,6 +111,55 @@ interface TenantAnalytics {
   revenue_collected: number
   overdue_invoice_count: number
   last_30_days_revenue: number
+}
+
+interface UsageInfo {
+  plan_name: string | null
+  invoices_used: number
+  invoices_limit: number | null
+  usage_percent: number
+  days_until_reset: number
+  warning_level: 'none' | 'warning' | 'critical' | 'limit_reached'
+}
+
+const USAGE_COPY: Record<string, { title: string; color: string }> = {
+  warning: { title: 'Approaching your monthly invoice limit', color: 'var(--amber)' },
+  critical: { title: 'Nearly at your monthly invoice limit', color: 'var(--red)' },
+  limit_reached: { title: 'Monthly invoice limit reached', color: 'var(--red)' },
+}
+
+/**
+ * Usage-limit warning, shown ahead of the actual cutoff so a Super Admin
+ * isn't surprised mid-invoice — at 80% a heads-up, at 95% urgent, and at
+ * 100% a plain statement that new invoices are blocked until next month
+ * (the server enforces the block itself; this is the reminder).
+ */
+function UsageBanner() {
+  const { session } = useAuth()
+  const [usage, setUsage] = useState<UsageInfo | null>(null)
+
+  useEffect(() => {
+    if (session?.role !== 'super_admin') return
+    apiFetch<UsageInfo>('/account/usage').then(setUsage).catch(() => {})
+  }, [session?.role])
+
+  if (!usage || usage.warning_level === 'none' || !usage.invoices_limit) return null
+  const copy = USAGE_COPY[usage.warning_level]
+
+  return (
+    <div style={{ background: 'var(--accent-dim)', border: `1px solid ${copy.color}`, borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+      <div>
+        <div style={{ fontWeight: 800, color: copy.color, marginBottom: 2 }}>{copy.title}</div>
+        <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+          <strong style={{ color: 'var(--text)' }}>{usage.invoices_used}/{usage.invoices_limit}</strong> invoices used this month on the {usage.plan_name} plan
+          {usage.warning_level === 'limit_reached'
+            ? ' — new invoices are blocked until it resets.'
+            : ` — resets in ${usage.days_until_reset} day${usage.days_until_reset === 1 ? '' : 's'}.`}
+          {' '}Contact Aurae Software Solutions to upgrade your plan.
+        </div>
+      </div>
+    </div>
+  )
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

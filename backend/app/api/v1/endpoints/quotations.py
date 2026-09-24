@@ -6,14 +6,16 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.api.deps import require_tenant_staff, current_tenant_id
+from app.api.deps import require_tenant_staff, current_tenant_id, require_active_tenant
 from app.models.billing import Quotation, QuotationItem, QuotationStatus, Invoice, InvoiceItem
 from app.models.branding import TenantBranding
 from app.models.tenant import Tenant
+from app.models.subscription_plan import SubscriptionPlan
 from app.models.user import User
 from app.schemas.billing import QuotationCreate, QuotationOut, InvoiceOut
 from app.services.numbering import next_document_number
 from app.services.pdf import render_document_pdf
+from app.services.usage import invoices_this_month
 from app.api.v1.endpoints.invoices import _compute_totals
 
 router = APIRouter()
@@ -46,7 +48,7 @@ def create_quotation(
     payload: QuotationCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_tenant_staff),
-    tenant_id: str = Depends(current_tenant_id),
+    tenant_id: str = Depends(require_active_tenant),
 ):
     number = next_document_number(db, tenant_id=uuid.UUID(tenant_id), doc_type="quotation", on=payload.issue_date)
     quotation = Quotation(
@@ -76,14 +78,27 @@ def convert_to_invoice(
     quotation_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: User = Depends(require_tenant_staff),
-    tenant_id: str = Depends(current_tenant_id),
+    tenant_id: str = Depends(require_active_tenant),
 ):
-    """One-action quotation → invoice conversion (SOW 3.1)."""
+    """One-action quotation → invoice conversion (SOW 3.1). Creates an
+    invoice, so it's subject to the same monthly-limit check as a
+    hand-created one."""
     quotation = db.query(Quotation).filter(Quotation.id == quotation_id, Quotation.tenant_id == tenant_id).one_or_none()
     if quotation is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Quotation not found.")
     if quotation.status == QuotationStatus.CONVERTED:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This quotation has already been converted.")
+
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one()
+    if tenant.subscription_plan_id:
+        plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none()
+        if plan and invoices_this_month(db, tenant_id) >= plan.max_invoices_per_month:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"Monthly invoice limit reached ({plan.max_invoices_per_month}/{plan.max_invoices_per_month} on "
+                f"the {plan.name} plan). It resets at the start of next month, or contact Aurae Software "
+                "Solutions to upgrade your plan.",
+            )
 
     number = next_document_number(db, tenant_id=uuid.UUID(tenant_id), doc_type="invoice", on=quotation.issue_date)
     invoice = Invoice(

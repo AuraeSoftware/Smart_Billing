@@ -52,7 +52,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 }
 
 export async function login(email: string, password: string) {
-  return apiFetch<{ access_token: string; role: string; tenant_id: string | null; full_name: string }>('/auth/login', {
+  return apiFetch<{ access_token: string; role: string; tenant_id: string | null; full_name: string; tenant_status: string | null }>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({
       email,

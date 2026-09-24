@@ -23,6 +23,7 @@ from app.schemas.tenant import TenantOut
 from app.core.security import hash_password, verify_password
 from app.services.device_binding import suspend_credential, reactivate_credential, deregister_device
 from app.services.subscription_events import log_subscription_event
+from app.services.usage import usage_snapshot
 
 router = APIRouter()
 
@@ -123,6 +124,15 @@ class SuperAdminRow(BaseModel):
     tenant_currency: str | None
     plan_name: str | None
     created_at: str
+    # Plan-usage tracking (SOW: the Supreme Admin tracks Super Admins and
+    # the plan they're on, not their raw invoice/quotation business data) —
+    # how many invoices this tenant has created against their plan's
+    # monthly cap this calendar month.
+    invoices_used: int = 0
+    invoices_limit: int | None = None
+    usage_percent: float = 0
+    days_until_reset: int = 0
+    warning_level: str = "none"
 
     class Config:
         from_attributes = True
@@ -138,6 +148,7 @@ def list_super_admins(db: Session = Depends(get_db), _: User = Depends(require_s
         if tenant and tenant.subscription_plan_id:
             plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none()
         status_val = tenant.subscription_status.value if tenant and hasattr(tenant.subscription_status, "value") else (str(tenant.subscription_status) if tenant else None)
+        usage = usage_snapshot(db, tenant.id, plan) if tenant else {"invoices_used": 0, "invoices_limit": None, "usage_percent": 0, "days_until_reset": 0, "warning_level": "none"}
         rows.append(SuperAdminRow(
             id=u.id, full_name=u.full_name, email=u.email,
             is_active=u.is_active, is_suspended=u.is_suspended,
@@ -147,6 +158,7 @@ def list_super_admins(db: Session = Depends(get_db), _: User = Depends(require_s
             tenant_currency=tenant.currency if tenant else None,
             plan_name=plan.name if plan else None,
             created_at=u.created_at.isoformat(),
+            **usage,
         ))
     return rows
 

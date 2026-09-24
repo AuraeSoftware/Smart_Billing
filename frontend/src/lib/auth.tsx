@@ -5,6 +5,10 @@ export interface Session {
   role: 'supreme_admin' | 'super_admin' | 'tenant_user'
   tenantId: string | null
   fullName: string
+  // "pending_onboarding" | "active" | null (supreme admin has no tenant).
+  // Suspended/cancelled workspaces are rejected at login itself, so this
+  // value is only ever those two for a signed-in tenant user.
+  tenantStatus?: string | null
 }
 
 const SESSION_KEY = 'sb_session'
