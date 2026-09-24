@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend,
+  AreaChart, Area, CartesianGrid, XAxis, YAxis,
+} from 'recharts'
 import { apiFetch, ApiError } from '../lib/api'
 import { getCached, isOnline, queueOfflineCreate, syncAll, type DocType } from '../lib/offlineStore'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import AppLayout, { type NavItem } from '../components/AppLayout'
+import { DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS } from '../components/DashboardUI'
 import Settings from './Settings'
 
 const NAV_ITEMS: NavItem[] = [
@@ -60,32 +65,122 @@ interface TenantAnalytics {
 
 function OverviewPanel() {
   const [stats, setStats] = useState<TenantAnalytics | null>(null)
+  const { items: invoices } = useDocList<InvoiceRow>('invoices')
+  const { items: receipts } = useDocList<ReceiptRow>('receipts')
   useEffect(() => { apiFetch<TenantAnalytics>('/analytics/tenant').then(setStats).catch(() => {}) }, [])
+
+  const revenueTrend = useMemo(() => {
+    if (receipts.length === 0) return []
+    const buckets = new Map<string, number>()
+    receipts.forEach((r) => {
+      const key = new Date(r.received_at).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
+      buckets.set(key, (buckets.get(key) || 0) + Number(r.amount))
+    })
+    return [...receipts]
+      .sort((a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime())
+      .reduce<{ name: string; revenue: number }[]>((acc, r) => {
+        const key = new Date(r.received_at).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
+        if (!acc.find((p) => p.name === key)) acc.push({ name: key, revenue: Math.round((buckets.get(key) || 0) * 100) / 100 })
+        return acc
+      }, [])
+  }, [receipts])
+
+  const invoiceStatusDist = useMemo(() => {
+    if (invoices.length === 0) return []
+    const colors: Record<string, string> = {
+      draft: 'var(--text-3)', sent: CHART_COLORS.blue, viewed: CHART_COLORS.blue,
+      paid: CHART_COLORS.green, partially_paid: CHART_COLORS.amber, overdue: CHART_COLORS.red, cancelled: 'var(--text-3)',
+    }
+    const counts = new Map<string, number>()
+    invoices.forEach((inv) => counts.set(inv.status, (counts.get(inv.status) || 0) + 1))
+    return [...counts.entries()].map(([name, value]) => ({ name: name.replaceAll('_', ' '), value, color: colors[name] || 'var(--text-3)' }))
+  }, [invoices])
+
+  const recentInvoices = useMemo(
+    () => [...invoices].sort((a, b) => new Date(b.issue_date).getTime() - new Date(a.issue_date).getTime()).slice(0, 6),
+    [invoices],
+  )
 
   if (!stats) return <div className="card"><p className="muted">Loading overview…</p></div>
 
-  const tiles: [string, string | number][] = [
-    ['Invoices', stats.invoice_count],
-    ['Quotations', stats.quotation_count],
-    ['Receipts', stats.receipt_count],
-    ['Outstanding receivables', stats.outstanding_receivables.toLocaleString()],
-    ['Revenue collected', stats.revenue_collected.toLocaleString()],
-    ['Revenue (last 30 days)', stats.last_30_days_revenue.toLocaleString()],
-    ['Overdue invoices', stats.overdue_invoice_count],
-  ]
-
   return (
-    <div className="card">
-      <h2>Overview</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
-        {tiles.map(([label, value]) => (
-          <div className="stat-tile" key={label}>
-            <div className="label">{label}</div>
-            <div className="value">{value}</div>
-          </div>
-        ))}
+    <>
+      <div className="command-bar">
+        <div>
+          <h2 style={{ margin: 0 }}>Billing overview</h2>
+          <p className="muted" style={{ margin: '3px 0 0' }}>Revenue, receivables, and document activity for your workspace.</p>
+        </div>
       </div>
-    </div>
+
+      <div className="kpi-grid">
+        <KpiCard icon={<Icon path={ICONS.revenue} size={18} />} label="Revenue collected" value={stats.revenue_collected.toLocaleString()} sub={`${stats.last_30_days_revenue.toLocaleString()} in the last 30 days`} color="var(--green)" />
+        <KpiCard icon={<Icon path={ICONS.invoice} size={18} />} label="Outstanding receivables" value={stats.outstanding_receivables.toLocaleString()} sub={`${stats.overdue_invoice_count} invoice${stats.overdue_invoice_count === 1 ? '' : 's'} overdue`} color="var(--amber)" />
+        <KpiCard icon={<Icon path={ICONS.invoice} size={18} />} label="Invoices" value={stats.invoice_count} color="var(--accent)" />
+        <KpiCard icon={<Icon path={ICONS.quotation} size={18} />} label="Quotations" value={stats.quotation_count} color="var(--blue)" />
+        <KpiCard icon={<Icon path={ICONS.receipt} size={18} />} label="Receipts" value={stats.receipt_count} color="var(--accent-2)" />
+      </div>
+
+      <div className="chart-grid-2">
+        <DashboardCard title="Revenue trend" subtitle="Payments received over time, from your recorded receipts">
+          {revenueTrend.length < 2 ? (
+            <EmptyState icon={<Icon path={ICONS.revenue} size={22} />} title="Not enough history yet" sub="The trend fills in as receipts are recorded." />
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={revenueTrend}>
+                <defs>
+                  <linearGradient id="revenueTrendGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: 'var(--text-3)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: 'var(--text-3)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--card-border)', borderRadius: 10, fontSize: 12 }} labelStyle={{ color: 'var(--text)' }} />
+                <Area type="monotone" dataKey="revenue" stroke="var(--accent)" strokeWidth={2} fill="url(#revenueTrendGrad)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </DashboardCard>
+
+        <DashboardCard title="Invoice status mix" subtitle="Where every invoice stands right now">
+          {invoiceStatusDist.length === 0 ? (
+            <EmptyState icon={<Icon path={ICONS.invoice} size={22} />} title="No invoices yet" />
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie data={invoiceStatusDist} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={54} outerRadius={80} strokeWidth={0} paddingAngle={2}>
+                  {invoiceStatusDist.map((s) => <Cell key={s.name} fill={s.color} />)}
+                </Pie>
+                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--card-border)', borderRadius: 10, fontSize: 12 }} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: 'var(--text-2)' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </DashboardCard>
+      </div>
+
+      <DashboardCard title="Recent invoices" subtitle="Latest documents issued from your workspace">
+        {recentInvoices.length === 0 ? (
+          <EmptyState icon={<Icon path={ICONS.invoice} size={22} />} title="No invoices yet" sub="New invoices you create will show up here first." />
+        ) : (
+          <table>
+            <thead><tr><th>Number</th><th>Customer</th><th>Status</th><th>Total</th><th>Issued</th></tr></thead>
+            <tbody>
+              {recentInvoices.map((inv) => (
+                <tr key={inv.id}>
+                  <td>{inv.number}</td>
+                  <td>{inv.customer_name}</td>
+                  <td><StatusChip status={inv.status} /></td>
+                  <td>{inv.grand_total.toLocaleString()}</td>
+                  <td>{new Date(inv.issue_date).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </DashboardCard>
+    </>
   )
 }
 
