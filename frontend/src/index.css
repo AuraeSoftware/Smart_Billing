@@ -282,6 +282,38 @@ h2 { font-size: 17px; }
   box-shadow: var(--shadow-glow);
 }
 
+/* Admin pages mostly write <label>Text<input/></label> directly rather than
+   wrapping a .field div around a sibling label+input — without this, a bare
+   <label> stays an inline box and its text runs straight into the control
+   with no line break or gap. This stacks the label text above whatever
+   control it wraps (input/select/textarea), matching the .field look.
+   Labels that already set their own display (e.g. inline checkbox rows via
+   a style prop) are unaffected — an inline style always outranks this. */
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+label input, label select, label textarea {
+  font-weight: 400;
+  padding: 9px 11px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--bg-2);
+  color: var(--text);
+}
+label input:focus, label select:focus, label textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--shadow-glow);
+}
+label input[type="checkbox"] { width: auto; padding: 0; border: none; background: none; }
+
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
 th { color: var(--text-3); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }

@@ -87,6 +87,16 @@ export function SuperAdminsPage() {
     load()
   }
 
+  // Tenant-level activation, distinct from toggleSuspend above (which only
+  // suspends/reactivates the Super Admin's login credential). A tenant
+  // freshly signed up sits in "pending_onboarding" until the Supreme Admin
+  // activates its workspace — that's this action.
+  async function tenantAction(r: SuperAdminRow, action: 'suspend' | 'reactivate') {
+    if (!r.tenant_id) return
+    await apiFetch(`/admin/tenants/${r.tenant_id}/${action}`, { method: 'POST' })
+    load()
+  }
+
   function openEdit(r: SuperAdminRow) {
     setEditing(r)
     setEditForm({ full_name: r.full_name, email: r.email, new_password: '' })
@@ -175,11 +185,32 @@ export function SuperAdminsPage() {
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: r.tenant_id ? 8 : 0 }}>
                   <button className="btn ghost" style={{ flex: 1, padding: 6 }} onClick={() => openEdit(r)}>Edit</button>
                   <button className="btn secondary" style={{ flex: 1, padding: 6 }} onClick={() => setShowSub(r)}>Plan</button>
-                  <button className={isSuspended ? 'btn' : 'btn warn'} style={{ flex: 1, padding: 6 }} onClick={() => toggleSuspend(r)}>{isSuspended ? 'Activate' : 'Suspend'}</button>
+                  <button className={isSuspended ? 'btn' : 'btn warn'} style={{ flex: 1, padding: 6 }} onClick={() => toggleSuspend(r)} title="Suspends only this person's login — the tenant's workspace stays as-is.">
+                    {isSuspended ? 'Activate login' : 'Suspend login'}
+                  </button>
                 </div>
+
+                {/* Tenant workspace activation — separate from the login toggle
+                    above. A freshly signed-up tenant sits in "Pending
+                    Onboarding" until activated here. */}
+                {r.tenant_id && r.tenant_status === 'pending_onboarding' && (
+                  <button className="btn" style={{ width: '100%', padding: 8 }} onClick={() => tenantAction(r, 'reactivate')}>
+                    Activate tenant
+                  </button>
+                )}
+                {r.tenant_id && r.tenant_status === 'active' && (
+                  <button className="btn warn" style={{ width: '100%', padding: 8 }} onClick={() => tenantAction(r, 'suspend')}>
+                    Suspend tenant
+                  </button>
+                )}
+                {r.tenant_id && r.tenant_status === 'suspended' && (
+                  <button className="btn" style={{ width: '100%', padding: 8 }} onClick={() => tenantAction(r, 'reactivate')}>
+                    Reactivate tenant
+                  </button>
+                )}
               </DashboardCard>
             )
           })}
