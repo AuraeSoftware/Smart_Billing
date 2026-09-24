@@ -9,15 +9,26 @@ import SyncStatusBadge from '../components/SyncStatusBadge'
 import AppLayout, { type NavItem } from '../components/AppLayout'
 import { DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS } from '../components/DashboardUI'
 import Settings from './Settings'
-import { MyPlanPage, TenantPaymentSettingsPage, TenantCredentialsPage } from './superadmin/SuperAdminExtras'
+import {
+  MyPlanPage, TenantCredentialsPage, CustomersPage, TeamPage, CatalogPage,
+  GstManagerPage, TenantReportsPage,
+} from './superadmin/SuperAdminExtras'
 
+// Same pattern as the Supreme Admin sidebar — the real Smart Garage 360
+// Super Admin nav, each item mapped to its billing equivalent. Payment
+// Settings is deliberately excluded: tenants settle their own subscription
+// with Aurae directly, and there's no per-customer checkout to gate here.
 const NAV_ITEMS: NavItem[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'invoices', label: 'Invoices' },
   { key: 'quotations', label: 'Quotations' },
   { key: 'receipts', label: 'Receipts' },
+  { key: 'customers', label: 'Customers' },
+  { key: 'team', label: 'Team' },
+  { key: 'catalog', label: 'Catalog' },
+  { key: 'reports', label: 'Reports' },
   { key: 'my-plan', label: 'My Plan' },
-  { key: 'payment-settings', label: 'Payment Settings' },
+  { key: 'gst-manager', label: 'GST Manager' },
   { key: 'credentials', label: 'Credentials' },
   { key: 'settings', label: 'Settings' },
 ]
@@ -31,7 +42,10 @@ interface ReceiptRow { id: string; number: string; invoice_id: string; amount: n
 const emptyItem = (): LineItem => ({ description: '', quantity: 1, unit_price: 0, tax_rate_percent: 0, discount_percent: 0 })
 
 export default function SuperAdminDashboard() {
-  const [tab, setTab] = useState<'overview' | 'invoices' | 'quotations' | 'receipts' | 'settings' | 'my-plan' | 'payment-settings' | 'credentials'>('overview')
+  const [tab, setTab] = useState<
+    'overview' | 'invoices' | 'quotations' | 'receipts' | 'customers' | 'team' | 'catalog' |
+    'reports' | 'settings' | 'my-plan' | 'gst-manager' | 'credentials'
+  >('overview')
   // Set by the Overview tab's "+ New invoice" quick action (the billing
   // equivalent of Smart Garage's "+ Assign Job" action bar button) so the
   // Invoices tab opens with the create-invoice form already expanded.
@@ -61,8 +75,12 @@ export default function SuperAdminDashboard() {
       {tab === 'invoices' && <InvoicesPanel autoOpen={openInvoiceForm} onAutoOpenHandled={() => setOpenInvoiceForm(false)} />}
       {tab === 'quotations' && <QuotationsPanel />}
       {tab === 'receipts' && <ReceiptsPanel />}
+      {tab === 'customers' && <CustomersPage />}
+      {tab === 'team' && <TeamPage />}
+      {tab === 'catalog' && <CatalogPage />}
+      {tab === 'reports' && <TenantReportsPage />}
       {tab === 'my-plan' && <MyPlanPage />}
-      {tab === 'payment-settings' && <TenantPaymentSettingsPage />}
+      {tab === 'gst-manager' && <GstManagerPage />}
       {tab === 'credentials' && <TenantCredentialsPage />}
       {tab === 'settings' && <Settings />}
     </AppLayout>

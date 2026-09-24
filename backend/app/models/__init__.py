@@ -8,6 +8,8 @@ from app.models.subscription_plan import SubscriptionPlan  # noqa: F401
 from app.models.subscription_event import TenantSubscriptionEvent  # noqa: F401
 from app.models.payment_settings import PlatformPaymentSettings, TenantPaymentGateway  # noqa: F401
 from app.models.currency_config import CurrencyRate, PlanCurrencyOverride  # noqa: F401
+from app.models.catalog import CatalogItem  # noqa: F401
+from app.models.gst import TenantGstSettings, TenantTaxCode  # noqa: F401
 from app.models.billing import (  # noqa: F401
     Invoice,
     InvoiceItem,

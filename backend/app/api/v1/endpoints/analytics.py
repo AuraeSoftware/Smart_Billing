@@ -18,6 +18,71 @@ from app.models.user import User
 router = APIRouter()
 
 
+# ---------------------------------------------------------------------------
+# Customers — Smart Garage 360's "Customers" sidebar page, adapted for
+# billing: there's no separate Customer table (invoices/quotations carry
+# their own customer_name/email), so this aggregates by customer name across
+# both documents rather than querying a dedicated entity.
+# ---------------------------------------------------------------------------
+
+class CustomerRow(BaseModel):
+    name: str
+    email: str | None
+    invoice_count: int
+    quotation_count: int
+    total_billed: float
+    total_paid: float
+    last_activity: str | None
+
+
+@router.get("/tenant/customers", response_model=list[CustomerRow])
+def tenant_customers(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_tenant_staff),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    """Aggregates every invoice/quotation for the tenant by customer name,
+    for the Super Admin's Customers page — a running ledger of who's been
+    billed, how much, and how much has actually come in, without a separate
+    customer database to keep in sync."""
+    invoices = db.query(Invoice).filter(Invoice.tenant_id == tenant_id).all()
+    quotations = db.query(Quotation).filter(Quotation.tenant_id == tenant_id).all()
+
+    rows: dict[str, dict] = {}
+
+    def bucket(name: str, email: str | None) -> dict:
+        key = name.strip().lower()
+        if key not in rows:
+            rows[key] = {
+                "name": name, "email": email, "invoice_count": 0, "quotation_count": 0,
+                "total_billed": 0.0, "total_paid": 0.0, "last_activity": None,
+            }
+        b = rows[key]
+        if email and not b["email"]:
+            b["email"] = email
+        return b
+
+    for inv in invoices:
+        b = bucket(inv.customer_name, inv.customer_email)
+        b["invoice_count"] += 1
+        b["total_billed"] += float(inv.grand_total)
+        b["total_paid"] += float(inv.amount_paid)
+        stamp = inv.issue_date.isoformat()
+        if not b["last_activity"] or stamp > b["last_activity"]:
+            b["last_activity"] = stamp
+
+    for q in quotations:
+        b = bucket(q.customer_name, q.customer_email)
+        b["quotation_count"] += 1
+        stamp = q.issue_date.isoformat()
+        if not b["last_activity"] or stamp > b["last_activity"]:
+            b["last_activity"] = stamp
+
+    return [
+        CustomerRow(**b) for b in sorted(rows.values(), key=lambda r: r["name"].lower())
+    ]
+
+
 def _status_value(status) -> str:
     """SubscriptionStatus is a str-Enum bound by .value at the DB level, but a
     row loaded via the ORM gives back the Python enum member — normalize both
