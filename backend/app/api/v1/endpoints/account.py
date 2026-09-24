@@ -13,7 +13,7 @@ from app.core.security import hash_password, verify_password
 from app.models.user import User
 from app.models.tenant import Tenant
 from app.models.subscription_plan import SubscriptionPlan
-from app.models.payment_settings import PlatformPaymentSettings
+from app.models.payment_settings import PlatformPaymentSettings, TenantPaymentGateway
 from app.services.device_binding import deregister_device
 
 router = APIRouter()
@@ -56,16 +56,86 @@ class PaymentSettingsOut(BaseModel):
     upi_id: str | None
     supported_gateways: str | None
     notes: str | None
-
-    class Config:
-        from_attributes = True
+    gateway_available: bool = False
 
 
 @router.get("/payment-settings", response_model=PaymentSettingsOut | None)
 def get_payment_settings(db: Session = Depends(get_db), _: User = Depends(require_super_admin)):
     """Read-only view of the platform payment instructions Aurae publishes —
-    the Supreme Admin's copy (app.api.v1.endpoints.admin) is the editable one."""
-    return db.query(PlatformPaymentSettings).first()
+    the Supreme Admin's copy (app.api.v1.endpoints.admin) is the editable
+    one. Gateway secrets never leave the Supreme Admin's own endpoint —
+    tenants only see whether a gateway is configured, not the keys."""
+    s = db.query(PlatformPaymentSettings).first()
+    if s is None:
+        return None
+    return PaymentSettingsOut(
+        bank_name=s.bank_name, account_name=s.account_name, account_number=s.account_number,
+        ifsc_code=s.ifsc_code, upi_id=s.upi_id, supported_gateways=s.supported_gateways, notes=s.notes,
+        gateway_available=bool(s.razorpay_key_id and s.razorpay_key_secret),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Payment Gateway — the tenant's own Razorpay credentials, used to collect
+# payments from their customers at invoice checkout (Smart Garage 360's
+# "Payment Settings" page, tenant-scoped). Secrets are write-only.
+# ---------------------------------------------------------------------------
+
+_MASK = "••••••••"
+
+
+class PaymentGatewayOut(BaseModel):
+    razorpay_key_id: str | None
+    razorpay_key_secret: str | None
+    razorpay_webhook_secret: str | None
+
+
+class PaymentGatewayIn(BaseModel):
+    razorpay_key_id: str | None = None
+    razorpay_key_secret: str | None = None
+    razorpay_webhook_secret: str | None = None
+
+
+@router.get("/payment-gateway", response_model=PaymentGatewayOut)
+def get_payment_gateway(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_super_admin),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    gw = db.query(TenantPaymentGateway).filter(TenantPaymentGateway.tenant_id == uuid.UUID(tenant_id)).one_or_none()
+    if gw is None:
+        return PaymentGatewayOut(razorpay_key_id=None, razorpay_key_secret=None, razorpay_webhook_secret=None)
+    return PaymentGatewayOut(
+        razorpay_key_id=gw.razorpay_key_id,
+        razorpay_key_secret=_MASK if gw.razorpay_key_secret else None,
+        razorpay_webhook_secret=_MASK if gw.razorpay_webhook_secret else None,
+    )
+
+
+@router.put("/payment-gateway", response_model=PaymentGatewayOut)
+def update_payment_gateway(
+    payload: PaymentGatewayIn,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_super_admin),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    gw = db.query(TenantPaymentGateway).filter(TenantPaymentGateway.tenant_id == uuid.UUID(tenant_id)).one_or_none()
+    if gw is None:
+        gw = TenantPaymentGateway(id=uuid.uuid4(), tenant_id=uuid.UUID(tenant_id))
+    if payload.razorpay_key_id is not None:
+        gw.razorpay_key_id = payload.razorpay_key_id
+    if payload.razorpay_key_secret and payload.razorpay_key_secret != _MASK:
+        gw.razorpay_key_secret = payload.razorpay_key_secret
+    if payload.razorpay_webhook_secret and payload.razorpay_webhook_secret != _MASK:
+        gw.razorpay_webhook_secret = payload.razorpay_webhook_secret
+    db.add(gw)
+    db.commit()
+    db.refresh(gw)
+    return PaymentGatewayOut(
+        razorpay_key_id=gw.razorpay_key_id,
+        razorpay_key_secret=_MASK if gw.razorpay_key_secret else None,
+        razorpay_webhook_secret=_MASK if gw.razorpay_webhook_secret else None,
+    )
 
 
 class MyPlanOut(BaseModel):

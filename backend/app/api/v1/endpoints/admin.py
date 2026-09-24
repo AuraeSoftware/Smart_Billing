@@ -18,7 +18,9 @@ from app.models.device import DeviceEvent, DeviceEventType
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.subscription_event import TenantSubscriptionEvent
 from app.models.payment_settings import PlatformPaymentSettings
+from app.models.currency_config import CurrencyRate, PlanCurrencyOverride
 from app.schemas.tenant import TenantOut
+from app.core.security import hash_password, verify_password
 from app.services.device_binding import suspend_credential, reactivate_credential, deregister_device
 from app.services.subscription_events import log_subscription_event
 
@@ -163,6 +165,11 @@ class SubscriptionPlanOut(BaseModel):
     max_users: int
     max_invoices_per_month: int
     is_active: bool
+    color: str
+    has_priority_support: bool
+    has_api_access: bool
+    has_advanced_reports: bool
+    has_multi_currency: bool
     tenant_count: int = 0
 
     class Config:
@@ -178,20 +185,29 @@ class SubscriptionPlanIn(BaseModel):
     max_users: int = 5
     max_invoices_per_month: int = 100
     is_active: bool = True
+    color: str = "#da1a31"
+    has_priority_support: bool = False
+    has_api_access: bool = False
+    has_advanced_reports: bool = False
+    has_multi_currency: bool = False
+
+
+def _plan_out(db: Session, p: SubscriptionPlan) -> SubscriptionPlanOut:
+    count = db.query(Tenant).filter(Tenant.subscription_plan_id == p.id).count()
+    return SubscriptionPlanOut(
+        id=p.id, name=p.name, description=p.description, currency=p.currency,
+        price=float(p.price), billing_cycle=p.billing_cycle, max_users=p.max_users,
+        max_invoices_per_month=p.max_invoices_per_month, is_active=p.is_active,
+        color=p.color, has_priority_support=p.has_priority_support, has_api_access=p.has_api_access,
+        has_advanced_reports=p.has_advanced_reports, has_multi_currency=p.has_multi_currency,
+        tenant_count=count,
+    )
 
 
 @router.get("/subscription-plans", response_model=list[SubscriptionPlanOut])
 def list_subscription_plans(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
     plans = db.query(SubscriptionPlan).order_by(SubscriptionPlan.created_at.desc()).all()
-    out = []
-    for p in plans:
-        count = db.query(Tenant).filter(Tenant.subscription_plan_id == p.id).count()
-        out.append(SubscriptionPlanOut(
-            id=p.id, name=p.name, description=p.description, currency=p.currency,
-            price=float(p.price), billing_cycle=p.billing_cycle, max_users=p.max_users,
-            max_invoices_per_month=p.max_invoices_per_month, is_active=p.is_active, tenant_count=count,
-        ))
-    return out
+    return [_plan_out(db, p) for p in plans]
 
 
 @router.post("/subscription-plans", response_model=SubscriptionPlanOut, status_code=status.HTTP_201_CREATED)
@@ -200,7 +216,7 @@ def create_subscription_plan(payload: SubscriptionPlanIn, db: Session = Depends(
     db.add(plan)
     db.commit()
     db.refresh(plan)
-    return SubscriptionPlanOut(**{**payload.model_dump(), "id": plan.id, "price": float(plan.price), "tenant_count": 0})
+    return _plan_out(db, plan)
 
 
 @router.put("/subscription-plans/{plan_id}", response_model=SubscriptionPlanOut)
@@ -213,12 +229,7 @@ def update_subscription_plan(plan_id: uuid.UUID, payload: SubscriptionPlanIn, db
     db.add(plan)
     db.commit()
     db.refresh(plan)
-    count = db.query(Tenant).filter(Tenant.subscription_plan_id == plan.id).count()
-    return SubscriptionPlanOut(
-        id=plan.id, name=plan.name, description=plan.description, currency=plan.currency,
-        price=float(plan.price), billing_cycle=plan.billing_cycle, max_users=plan.max_users,
-        max_invoices_per_month=plan.max_invoices_per_month, is_active=plan.is_active, tenant_count=count,
-    )
+    return _plan_out(db, plan)
 
 
 @router.delete("/subscription-plans/{plan_id}")
@@ -359,8 +370,15 @@ def subscription_history(
 
 
 # ---------------------------------------------------------------------------
-# Payment Settings — singleton row; created on first read if missing.
+# Payment Settings — Smart Garage 360's actual "Payment Settings" page is a
+# Razorpay gateway configuration form (key_id/key_secret/webhook_secret),
+# used to collect subscription payments from tenants. We keep that, plus
+# the bank/UPI details tenants can pay into manually. Secrets are
+# write-only: a GET always masks them, matching Smart Garage's behaviour.
 # ---------------------------------------------------------------------------
+
+_MASK = "••••••••"
+
 
 class PaymentSettingsOut(BaseModel):
     bank_name: str | None
@@ -370,9 +388,22 @@ class PaymentSettingsOut(BaseModel):
     upi_id: str | None
     supported_gateways: str | None
     notes: str | None
+    razorpay_key_id: str | None
+    razorpay_key_secret: str | None
+    razorpay_webhook_secret: str | None
 
-    class Config:
-        from_attributes = True
+
+class PaymentSettingsIn(BaseModel):
+    bank_name: str | None = None
+    account_name: str | None = None
+    account_number: str | None = None
+    ifsc_code: str | None = None
+    upi_id: str | None = None
+    supported_gateways: str | None = None
+    notes: str | None = None
+    razorpay_key_id: str | None = None
+    razorpay_key_secret: str | None = None
+    razorpay_webhook_secret: str | None = None
 
 
 def _get_or_create_payment_settings(db: Session) -> PlatformPaymentSettings:
@@ -385,20 +416,95 @@ def _get_or_create_payment_settings(db: Session) -> PlatformPaymentSettings:
     return settings_row
 
 
+def _mask_payment_settings(s: PlatformPaymentSettings) -> PaymentSettingsOut:
+    return PaymentSettingsOut(
+        bank_name=s.bank_name, account_name=s.account_name, account_number=s.account_number,
+        ifsc_code=s.ifsc_code, upi_id=s.upi_id, supported_gateways=s.supported_gateways, notes=s.notes,
+        razorpay_key_id=s.razorpay_key_id,
+        razorpay_key_secret=_MASK if s.razorpay_key_secret else None,
+        razorpay_webhook_secret=_MASK if s.razorpay_webhook_secret else None,
+    )
+
+
 @router.get("/payment-settings", response_model=PaymentSettingsOut)
 def get_payment_settings(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
-    return _get_or_create_payment_settings(db)
+    return _mask_payment_settings(_get_or_create_payment_settings(db))
 
 
 @router.put("/payment-settings", response_model=PaymentSettingsOut)
-def update_payment_settings(payload: PaymentSettingsOut, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+def update_payment_settings(payload: PaymentSettingsIn, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
     settings_row = _get_or_create_payment_settings(db)
-    for field, value in payload.model_dump().items():
+    data = payload.model_dump()
+    # Secrets: leave untouched if the field comes back as the mask (i.e.
+    # the form was submitted without the person re-typing it).
+    for secret_field in ("razorpay_key_secret", "razorpay_webhook_secret"):
+        if data[secret_field] == _MASK:
+            data.pop(secret_field)
+    for field, value in data.items():
         setattr(settings_row, field, value)
     db.add(settings_row)
     db.commit()
     db.refresh(settings_row)
-    return settings_row
+    return _mask_payment_settings(settings_row)
+
+
+# ---------------------------------------------------------------------------
+# Currency Config — exchange rates vs the platform base currency (INR), plus
+# per-plan manual price overrides per currency.
+# ---------------------------------------------------------------------------
+
+class CurrencyRateOut(BaseModel):
+    currency: str
+    rate_vs_base: float
+
+
+class PlanOverrideOut(BaseModel):
+    plan_id: uuid.UUID
+    currency: str
+    price: float
+
+
+class CurrencyConfigOut(BaseModel):
+    base_currency: str = "INR"
+    rates: list[CurrencyRateOut]
+    overrides: list[PlanOverrideOut]
+
+
+class CurrencyConfigIn(BaseModel):
+    rates: list[CurrencyRateOut] = []
+    overrides: list[PlanOverrideOut] = []
+
+
+@router.get("/currency-config", response_model=CurrencyConfigOut)
+def get_currency_config(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    rates = db.query(CurrencyRate).order_by(CurrencyRate.currency).all()
+    overrides = db.query(PlanCurrencyOverride).all()
+    return CurrencyConfigOut(
+        rates=[CurrencyRateOut(currency=r.currency, rate_vs_base=float(r.rate_vs_base)) for r in rates],
+        overrides=[PlanOverrideOut(plan_id=o.plan_id, currency=o.currency, price=float(o.price)) for o in overrides],
+    )
+
+
+@router.put("/currency-config", response_model=CurrencyConfigOut)
+def update_currency_config(payload: CurrencyConfigIn, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    for r in payload.rates:
+        row = db.query(CurrencyRate).filter(CurrencyRate.currency == r.currency.upper()).one_or_none()
+        if row is None:
+            row = CurrencyRate(id=uuid.uuid4(), currency=r.currency.upper())
+        row.rate_vs_base = r.rate_vs_base
+        db.add(row)
+    for o in payload.overrides:
+        row = (
+            db.query(PlanCurrencyOverride)
+            .filter(PlanCurrencyOverride.plan_id == o.plan_id, PlanCurrencyOverride.currency == o.currency.upper())
+            .one_or_none()
+        )
+        if row is None:
+            row = PlanCurrencyOverride(id=uuid.uuid4(), plan_id=o.plan_id, currency=o.currency.upper())
+        row.price = o.price
+        db.add(row)
+    db.commit()
+    return get_currency_config(db=db, _=None)
 
 
 # ---------------------------------------------------------------------------
@@ -420,5 +526,51 @@ def admin_change_password(payload: AdminChangePasswordRequest, db: Session = Dep
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "New password must be at least 8 characters.")
     admin.hashed_password = hash_password(payload.new_password)
     db.add(admin)
+    db.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Credentials management — Smart Garage 360's "Credentials" page: the
+# Supreme Admin can edit a Super Admin's name/email directly and reset
+# their password. We never display a stored plaintext password (unlike the
+# legacy Smart Garage table) — a reset issues a new one instead.
+# ---------------------------------------------------------------------------
+
+class EditSuperAdminRequest(BaseModel):
+    full_name: str | None = None
+    email: str | None = None
+
+
+@router.put("/users/{user_id}")
+def edit_super_admin(user_id: uuid.UUID, payload: EditSuperAdminRequest, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    user = db.query(User).filter(User.id == user_id, User.role == UserRole.SUPER_ADMIN).one_or_none()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Super Admin account not found.")
+    if payload.full_name:
+        user.full_name = payload.full_name
+    if payload.email:
+        existing = db.query(User).filter(User.email == payload.email, User.id != user_id).one_or_none()
+        if existing:
+            raise HTTPException(status.HTTP_409_CONFLICT, "That email is already in use.")
+        user.email = payload.email
+    db.add(user)
+    db.commit()
+    return {"ok": True}
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+
+
+@router.post("/users/{user_id}/reset-password")
+def reset_super_admin_password(user_id: uuid.UUID, payload: ResetPasswordRequest, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    user = db.query(User).filter(User.id == user_id, User.role == UserRole.SUPER_ADMIN).one_or_none()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Super Admin account not found.")
+    if len(payload.new_password) < 8:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "New password must be at least 8 characters.")
+    user.hashed_password = hash_password(payload.new_password)
+    db.add(user)
     db.commit()
     return {"ok": True}

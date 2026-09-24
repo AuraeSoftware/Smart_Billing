@@ -29,5 +29,13 @@ class SubscriptionPlan(Base):
     max_invoices_per_month: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # Card accent + feature flags — mirrors Smart Garage 360's plan cards
+    # (theme color swatch + a checklist of included modules).
+    color: Mapped[str] = mapped_column(String(9), nullable=False, default="#da1a31")
+    has_priority_support: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    has_api_access: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    has_advanced_reports: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    has_multi_currency: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

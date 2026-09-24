@@ -55,34 +55,73 @@ export function MyPlanPage() {
 interface PaymentSettings {
   bank_name: string | null; account_name: string | null; account_number: string | null
   ifsc_code: string | null; upi_id: string | null; supported_gateways: string | null; notes: string | null
+  gateway_available: boolean
 }
+interface PaymentGateway {
+  razorpay_key_id: string | null
+  razorpay_key_secret: string | null
+  razorpay_webhook_secret: string | null
+}
+const emptyGateway: PaymentGateway = { razorpay_key_id: '', razorpay_key_secret: '', razorpay_webhook_secret: '' }
 
+/**
+ * Payment Settings — Smart Garage 360's tenant-scoped equivalent: the
+ * Super Admin's own Razorpay keys, used to collect payments from their
+ * customers at invoice checkout, plus a read-only copy of the platform's
+ * bank/UPI instructions for paying Aurae directly.
+ */
 export function TenantPaymentSettingsPage() {
   const [settings, setSettings] = useState<PaymentSettings | null>(null)
+  const [gateway, setGateway] = useState<PaymentGateway>(emptyGateway)
   const [loading, setLoading] = useState(true)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    apiFetch<PaymentSettings | null>('/account/payment-settings').then(setSettings).finally(() => setLoading(false))
+    Promise.all([
+      apiFetch<PaymentSettings | null>('/account/payment-settings'),
+      apiFetch<PaymentGateway>('/account/payment-gateway'),
+    ]).then(([s, g]) => { setSettings(s); setGateway({ ...emptyGateway, ...g }) }).finally(() => setLoading(false))
   }, [])
+
+  async function saveGateway() {
+    setSaved(false)
+    const updated = await apiFetch<PaymentGateway>('/account/payment-gateway', { method: 'PUT', body: JSON.stringify(gateway) })
+    setGateway({ ...emptyGateway, ...updated })
+    setSaved(true)
+  }
 
   if (loading) return <DashboardCard title="Payment Settings"><p className="muted">Loading…</p></DashboardCard>
 
   return (
-    <DashboardCard title="Payment Settings" subtitle="Published by Aurae Software Solutions — read-only.">
-      {!settings || (!settings.bank_name && !settings.upi_id) ? (
-        <EmptyState title="No payment instructions published yet" />
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
-          {settings.bank_name && <div><div className="muted">Bank</div><div style={{ fontWeight: 700 }}>{settings.bank_name}</div></div>}
-          {settings.account_name && <div><div className="muted">Account name</div><div style={{ fontWeight: 700 }}>{settings.account_name}</div></div>}
-          {settings.account_number && <div><div className="muted">Account number</div><div style={{ fontWeight: 700 }}>{settings.account_number}</div></div>}
-          {settings.ifsc_code && <div><div className="muted">IFSC</div><div style={{ fontWeight: 700 }}>{settings.ifsc_code}</div></div>}
-          {settings.upi_id && <div><div className="muted">UPI ID</div><div style={{ fontWeight: 700 }}>{settings.upi_id}</div></div>}
-          {settings.supported_gateways && <div><div className="muted">Gateways</div><div style={{ fontWeight: 700 }}>{settings.supported_gateways}</div></div>}
-          {settings.notes && <div style={{ gridColumn: '1 / -1' }}><div className="muted">Notes</div><div>{settings.notes}</div></div>}
+    <div style={{ display: 'grid', gap: 20 }}>
+      <DashboardCard title="Your Payment Gateway" subtitle="Your own Razorpay keys, used to collect payments from your customers at invoice checkout.">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          <label>Razorpay Key ID<input value={gateway.razorpay_key_id || ''} onChange={(e) => setGateway({ ...gateway, razorpay_key_id: e.target.value })} placeholder="rzp_live_xxx…" /></label>
+          <label>Razorpay Key Secret<input type="password" value={gateway.razorpay_key_secret || ''} onChange={(e) => setGateway({ ...gateway, razorpay_key_secret: e.target.value })} placeholder="Enter secret key" /></label>
+          <label>Webhook Secret<input type="password" value={gateway.razorpay_webhook_secret || ''} onChange={(e) => setGateway({ ...gateway, razorpay_webhook_secret: e.target.value })} placeholder="Required for payment webhooks" /></label>
         </div>
-      )}
-    </DashboardCard>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
+          <button className="btn" onClick={saveGateway}>Save Payment Gateway</button>
+          {saved && <span className="status-chip status-chip-green">Saved</span>}
+        </div>
+      </DashboardCard>
+
+      <DashboardCard title="Pay Aurae Software Solutions" subtitle="Manual payment instructions for your own subscription, published by Aurae — read-only.">
+        {!settings || (!settings.bank_name && !settings.upi_id) ? (
+          <EmptyState title="No payment instructions published yet" />
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+            {settings.bank_name && <div><div className="muted">Bank</div><div style={{ fontWeight: 700 }}>{settings.bank_name}</div></div>}
+            {settings.account_name && <div><div className="muted">Account name</div><div style={{ fontWeight: 700 }}>{settings.account_name}</div></div>}
+            {settings.account_number && <div><div className="muted">Account number</div><div style={{ fontWeight: 700 }}>{settings.account_number}</div></div>}
+            {settings.ifsc_code && <div><div className="muted">IFSC</div><div style={{ fontWeight: 700 }}>{settings.ifsc_code}</div></div>}
+            {settings.upi_id && <div><div className="muted">UPI ID</div><div style={{ fontWeight: 700 }}>{settings.upi_id}</div></div>}
+            {settings.supported_gateways && <div><div className="muted">Gateways</div><div style={{ fontWeight: 700 }}>{settings.supported_gateways}</div></div>}
+            {settings.notes && <div style={{ gridColumn: '1 / -1' }}><div className="muted">Notes</div><div>{settings.notes}</div></div>}
+          </div>
+        )}
+      </DashboardCard>
+    </div>
   )
 }
 

@@ -14,17 +14,21 @@ import {
   SubscriptionHistoryPage, PaymentSettingsPage, ReportsPage, CredentialsPage,
 } from './supreme/SupremeExtras'
 
+// Exact order of Smart Garage 360's Supreme Admin sidebar (Dashboard,
+// Payment Settings, Reports, Super Admins, Subscription Plans, Currency
+// Config, Subscription History, Credentials), with Device Alerts kept as a
+// trailing Smart Billing-specific addition (SOW 3.3 device-binding log has
+// no Smart Garage equivalent).
 const NAV_ITEMS: NavItem[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'devices', label: 'Device alerts' },
-  { key: 'tenants', label: 'Tenants' },
+  { key: 'overview', label: 'Dashboard' },
+  { key: 'payment-settings', label: 'Payment Settings' },
   { key: 'reports', label: 'Reports' },
   { key: 'super-admins', label: 'Super Admins' },
   { key: 'subscription-plans', label: 'Subscription Plans' },
   { key: 'currency-config', label: 'Currency Config' },
   { key: 'subscription-history', label: 'Subscription History' },
-  { key: 'payment-settings', label: 'Payment Settings' },
   { key: 'credentials', label: 'Credentials' },
+  { key: 'devices', label: 'Device Alerts' },
 ]
 
 interface TenantRow {
@@ -78,7 +82,7 @@ interface PlatformAnalytics {
 
 export default function SupremeAdminDashboard() {
   const [tab, setTab] = useState<
-    'overview' | 'tenants' | 'devices' | 'reports' | 'super-admins' |
+    'overview' | 'devices' | 'reports' | 'super-admins' |
     'subscription-plans' | 'currency-config' | 'subscription-history' |
     'payment-settings' | 'credentials'
   >('overview')
@@ -137,7 +141,7 @@ export default function SupremeAdminDashboard() {
           tenants={tenants}
           tenantRevenue={tenantRevenue}
           revenueTrend={revenueTrend}
-          onSelectTenants={() => setTab('tenants')}
+          onSelectTenants={() => setTab('super-admins')}
         />
       )}
 
@@ -178,27 +182,6 @@ export default function SupremeAdminDashboard() {
                 </tr>
               ))}
               {events.length === 0 && <tr><td colSpan={5} className="muted">No events to show.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {tab === 'tenants' && (
-        <div className="card">
-          <h2>Tenants</h2>
-          <table>
-            <thead><tr><th>Name</th><th>Slug</th><th>Status</th><th>Contact</th><th>Onboarded</th></tr></thead>
-            <tbody>
-              {tenants.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.name}</td>
-                  <td>{t.slug}</td>
-                  <td><StatusChip status={t.subscription_status} /></td>
-                  <td>{t.contact_email}</td>
-                  <td>{new Date(t.created_at).toLocaleDateString()}</td>
-                </tr>
-              ))}
-              {tenants.length === 0 && <tr><td colSpan={5} className="muted">No tenants yet.</td></tr>}
             </tbody>
           </table>
         </div>

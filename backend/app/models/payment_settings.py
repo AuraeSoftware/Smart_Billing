@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import String, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,4 +28,27 @@ class PlatformPaymentSettings(Base):
     supported_gateways: Mapped[str | None] = mapped_column(String(255), nullable=True)  # comma-separated
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
+    # Payment gateway credentials (Razorpay) used to collect subscription
+    # payments from tenants — Smart Garage 360's actual "Payment Settings"
+    # page. Secrets are write-only from the API: a read always masks them.
+    razorpay_key_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    razorpay_key_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    razorpay_webhook_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class TenantPaymentGateway(Base):
+    """
+    A tenant's own Razorpay credentials, used to collect payments from
+    their customers at invoice checkout — the Super Admin's copy of the
+    same "Payment Settings" concept, scoped to their own tenant.
+    """
+    __tablename__ = "tenant_payment_gateways"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), unique=True, nullable=False)
+    razorpay_key_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    razorpay_key_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    razorpay_webhook_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
