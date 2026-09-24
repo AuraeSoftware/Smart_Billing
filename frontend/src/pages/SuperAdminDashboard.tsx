@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend,
-  AreaChart, Area, CartesianGrid, XAxis, YAxis,
+  ResponsiveContainer, PieChart, Pie, Cell, Tooltip,
+  BarChart, Bar, CartesianGrid, XAxis, YAxis,
 } from 'recharts'
 import { apiFetch, ApiError } from '../lib/api'
 import { getCached, isOnline, queueOfflineCreate, syncAll, type DocType } from '../lib/offlineStore'
@@ -9,12 +9,16 @@ import SyncStatusBadge from '../components/SyncStatusBadge'
 import AppLayout, { type NavItem } from '../components/AppLayout'
 import { DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS } from '../components/DashboardUI'
 import Settings from './Settings'
+import { MyPlanPage, TenantPaymentSettingsPage, TenantCredentialsPage } from './superadmin/SuperAdminExtras'
 
 const NAV_ITEMS: NavItem[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'invoices', label: 'Invoices' },
   { key: 'quotations', label: 'Quotations' },
   { key: 'receipts', label: 'Receipts' },
+  { key: 'my-plan', label: 'My Plan' },
+  { key: 'payment-settings', label: 'Payment Settings' },
+  { key: 'credentials', label: 'Credentials' },
   { key: 'settings', label: 'Settings' },
 ]
 
@@ -27,7 +31,11 @@ interface ReceiptRow { id: string; number: string; invoice_id: string; amount: n
 const emptyItem = (): LineItem => ({ description: '', quantity: 1, unit_price: 0, tax_rate_percent: 0, discount_percent: 0 })
 
 export default function SuperAdminDashboard() {
-  const [tab, setTab] = useState<'overview' | 'invoices' | 'quotations' | 'receipts' | 'settings'>('overview')
+  const [tab, setTab] = useState<'overview' | 'invoices' | 'quotations' | 'receipts' | 'settings' | 'my-plan' | 'payment-settings' | 'credentials'>('overview')
+  // Set by the Overview tab's "+ New invoice" quick action (the billing
+  // equivalent of Smart Garage's "+ Assign Job" action bar button) so the
+  // Invoices tab opens with the create-invoice form already expanded.
+  const [openInvoiceForm, setOpenInvoiceForm] = useState(false)
 
   useEffect(() => {
     // Pull the full document history into the offline cache on load, then
@@ -44,10 +52,18 @@ export default function SuperAdminDashboard() {
       onNavigate={(key) => setTab(key as typeof tab)}
       topbarExtra={<SyncStatusBadge />}
     >
-      {tab === 'overview' && <OverviewPanel />}
-      {tab === 'invoices' && <InvoicesPanel />}
+      {tab === 'overview' && (
+        <OverviewPanel
+          onNav={(key) => setTab(key)}
+          onQuickNewInvoice={() => { setOpenInvoiceForm(true); setTab('invoices') }}
+        />
+      )}
+      {tab === 'invoices' && <InvoicesPanel autoOpen={openInvoiceForm} onAutoOpenHandled={() => setOpenInvoiceForm(false)} />}
       {tab === 'quotations' && <QuotationsPanel />}
       {tab === 'receipts' && <ReceiptsPanel />}
+      {tab === 'my-plan' && <MyPlanPage />}
+      {tab === 'payment-settings' && <TenantPaymentSettingsPage />}
+      {tab === 'credentials' && <TenantCredentialsPage />}
       {tab === 'settings' && <Settings />}
     </AppLayout>
   )
@@ -63,37 +79,35 @@ interface TenantAnalytics {
   last_30_days_revenue: number
 }
 
-function OverviewPanel() {
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const STATUS_PIE_COLORS: Record<string, string> = {
+  draft: 'var(--text-3)', sent: CHART_COLORS.blue, viewed: CHART_COLORS.blue,
+  paid: CHART_COLORS.green, partially_paid: CHART_COLORS.amber, overdue: CHART_COLORS.red, cancelled: 'var(--text-3)',
+}
+
+function OverviewPanel({ onNav, onQuickNewInvoice }: { onNav: (key: 'invoices' | 'quotations' | 'receipts') => void; onQuickNewInvoice: () => void }) {
   const [stats, setStats] = useState<TenantAnalytics | null>(null)
   const { items: invoices } = useDocList<InvoiceRow>('invoices')
+  const { items: quotations } = useDocList<QuotationRow>('quotations')
   const { items: receipts } = useDocList<ReceiptRow>('receipts')
   useEffect(() => { apiFetch<TenantAnalytics>('/analytics/tenant').then(setStats).catch(() => {}) }, [])
 
-  const revenueTrend = useMemo(() => {
-    if (receipts.length === 0) return []
-    const buckets = new Map<string, number>()
+  // Revenue by day of week — the billing equivalent of Smart Garage's
+  // "Revenue by Day of Week" chart, built from the same receipts data.
+  const weeklyRevenue = useMemo(() => {
+    const buckets = WEEKDAYS.map((day) => ({ day, revenue: 0 }))
     receipts.forEach((r) => {
-      const key = new Date(r.received_at).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
-      buckets.set(key, (buckets.get(key) || 0) + Number(r.amount))
+      const i = new Date(r.received_at).getDay()
+      buckets[i].revenue += Number(r.amount)
     })
-    return [...receipts]
-      .sort((a, b) => new Date(a.received_at).getTime() - new Date(b.received_at).getTime())
-      .reduce<{ name: string; revenue: number }[]>((acc, r) => {
-        const key = new Date(r.received_at).toLocaleDateString(undefined, { month: 'short', year: '2-digit' })
-        if (!acc.find((p) => p.name === key)) acc.push({ name: key, revenue: Math.round((buckets.get(key) || 0) * 100) / 100 })
-        return acc
-      }, [])
+    return buckets
   }, [receipts])
 
   const invoiceStatusDist = useMemo(() => {
     if (invoices.length === 0) return []
-    const colors: Record<string, string> = {
-      draft: 'var(--text-3)', sent: CHART_COLORS.blue, viewed: CHART_COLORS.blue,
-      paid: CHART_COLORS.green, partially_paid: CHART_COLORS.amber, overdue: CHART_COLORS.red, cancelled: 'var(--text-3)',
-    }
     const counts = new Map<string, number>()
     invoices.forEach((inv) => counts.set(inv.status, (counts.get(inv.status) || 0) + 1))
-    return [...counts.entries()].map(([name, value]) => ({ name: name.replaceAll('_', ' '), value, color: colors[name] || 'var(--text-3)' }))
+    return [...counts.entries()].map(([name, value]) => ({ name: name.replaceAll('_', ' '), value, color: STATUS_PIE_COLORS[name] || 'var(--text-3)' }))
   }, [invoices])
 
   const recentInvoices = useMemo(
@@ -101,78 +115,158 @@ function OverviewPanel() {
     [invoices],
   )
 
+  const pendingQuotations = quotations.filter((q) => q.status === 'sent')
+  const convertedQuotations = quotations.filter((q) => q.status === 'converted')
+
   if (!stats) return <div className="card"><p className="muted">Loading overview…</p></div>
 
   return (
     <>
-      <div className="command-bar">
-        <div>
-          <h2 style={{ margin: 0 }}>Billing overview</h2>
-          <p className="muted" style={{ margin: '3px 0 0' }}>Revenue, receivables, and document activity for your workspace.</p>
+      {/* Overdue invoices alert — the billing equivalent of Smart Garage's
+          "Session Limit Reached" banner. */}
+      {stats.overdue_invoice_count > 0 && (
+        <div style={{ background: 'var(--accent-dim)', border: '1px solid var(--red)', borderRadius: 12, padding: '16px 20px', marginBottom: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--red)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
+              <Icon path={ICONS.alert} size={22} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--red)', marginBottom: 2 }}>Overdue invoices need attention</div>
+              <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+                <strong style={{ color: 'var(--text)' }}>{stats.overdue_invoice_count} invoice{stats.overdue_invoice_count === 1 ? '' : 's'}</strong> past due, totalling toward your {stats.outstanding_receivables.toLocaleString()} in outstanding receivables.
+              </div>
+            </div>
+          </div>
+          <button className="btn warn" onClick={() => onNav('invoices')}>Review invoices</button>
         </div>
+      )}
+
+      {/* Quotations awaiting response — the billing equivalent of Smart Garage's expiry alert. */}
+      {pendingQuotations.length > 0 && (
+        <div style={{ background: 'var(--highlight-dim)', border: '1px solid var(--amber)', borderRadius: 12, padding: '16px 20px', marginBottom: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--amber)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
+              <Icon path={ICONS.quotation} size={20} />
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--amber)', marginBottom: 2 }}>Quotations awaiting a response</div>
+              <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+                <strong style={{ color: 'var(--text)' }}>{pendingQuotations.length} quotation{pendingQuotations.length === 1 ? '' : 's'}</strong> sent to customers with no accept/decline yet — a nudge could move them along.
+              </div>
+            </div>
+          </div>
+          <button className="btn secondary" onClick={() => onNav('quotations')}>Review quotations</button>
+        </div>
+      )}
+
+      {/* Action bar — the billing equivalent of Smart Garage's "+ Assign Job" quick action */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button className="btn" style={{ display: 'flex', alignItems: 'center', gap: 6 }} onClick={onQuickNewInvoice}>
+          <Icon path={ICONS.invoice} size={15} /> New invoice
+        </button>
       </div>
 
       <div className="kpi-grid">
-        <KpiCard icon={<Icon path={ICONS.revenue} size={18} />} label="Revenue collected" value={stats.revenue_collected.toLocaleString()} sub={`${stats.last_30_days_revenue.toLocaleString()} in the last 30 days`} color="var(--green)" />
-        <KpiCard icon={<Icon path={ICONS.invoice} size={18} />} label="Outstanding receivables" value={stats.outstanding_receivables.toLocaleString()} sub={`${stats.overdue_invoice_count} invoice${stats.overdue_invoice_count === 1 ? '' : 's'} overdue`} color="var(--amber)" />
-        <KpiCard icon={<Icon path={ICONS.invoice} size={18} />} label="Invoices" value={stats.invoice_count} color="var(--accent)" />
-        <KpiCard icon={<Icon path={ICONS.quotation} size={18} />} label="Quotations" value={stats.quotation_count} color="var(--blue)" />
-        <KpiCard icon={<Icon path={ICONS.receipt} size={18} />} label="Receipts" value={stats.receipt_count} color="var(--accent-2)" />
+        <KpiCard icon={<Icon path={ICONS.revenue} size={18} />} label="Total revenue" value={stats.revenue_collected.toLocaleString()} sub={`${stats.last_30_days_revenue.toLocaleString()} in the last 30 days`} color="var(--accent)" />
+        <KpiCard icon={<Icon path={ICONS.invoice} size={18} />} label="Total invoices" value={stats.invoice_count} sub={`${stats.overdue_invoice_count} overdue`} color="var(--accent-2)" />
+        <KpiCard icon={<Icon path={ICONS.alert} size={18} />} label="Outstanding receivables" value={stats.outstanding_receivables.toLocaleString()} sub="not yet collected" color="var(--green)" />
       </div>
 
+      {/* Charts row — Revenue by Day of Week + Invoice Status Split, matching Smart Garage's 3:2 split */}
       <div className="chart-grid-2">
-        <DashboardCard title="Revenue trend" subtitle="Payments received over time, from your recorded receipts">
-          {revenueTrend.length < 2 ? (
-            <EmptyState icon={<Icon path={ICONS.revenue} size={22} />} title="Not enough history yet" sub="The trend fills in as receipts are recorded." />
+        <DashboardCard title="Revenue by day of week">
+          {receipts.length === 0 ? (
+            <EmptyState icon={<Icon path={ICONS.revenue} size={22} />} title="No receipts yet" sub="Record payments to see revenue data" />
           ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={revenueTrend}>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={weeklyRevenue}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="day" tick={{ fill: 'var(--text-3)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: 'var(--text-3)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--card-border)', borderRadius: 10, fontSize: 12 }} cursor={{ fill: 'var(--bg-3)' }} />
                 <defs>
-                  <linearGradient id="revenueTrendGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
+                  <linearGradient id="weeklyBarGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--accent)" />
+                    <stop offset="100%" stopColor="var(--accent-2)" />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: 'var(--text-3)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: 'var(--text-3)', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--card-border)', borderRadius: 10, fontSize: 12 }} labelStyle={{ color: 'var(--text)' }} />
-                <Area type="monotone" dataKey="revenue" stroke="var(--accent)" strokeWidth={2} fill="url(#revenueTrendGrad)" />
-              </AreaChart>
+                <Bar dataKey="revenue" fill="url(#weeklyBarGrad)" radius={[5, 5, 0, 0]} />
+              </BarChart>
             </ResponsiveContainer>
           )}
         </DashboardCard>
 
-        <DashboardCard title="Invoice status mix" subtitle="Where every invoice stands right now">
+        <DashboardCard title="Invoice status split">
           {invoiceStatusDist.length === 0 ? (
             <EmptyState icon={<Icon path={ICONS.invoice} size={22} />} title="No invoices yet" />
           ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie data={invoiceStatusDist} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={54} outerRadius={80} strokeWidth={0} paddingAngle={2}>
-                  {invoiceStatusDist.map((s) => <Cell key={s.name} fill={s.color} />)}
-                </Pie>
-                <Tooltip contentStyle={{ background: 'var(--card)', border: '1px solid var(--card-border)', borderRadius: 10, fontSize: 12 }} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: 'var(--text-2)' }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <>
+              <ResponsiveContainer width="100%" height={130}>
+                <PieChart>
+                  <Pie data={invoiceStatusDist} cx="50%" cy="50%" innerRadius={38} outerRadius={60} dataKey="value" strokeWidth={0}>
+                    {invoiceStatusDist.map((s) => <Cell key={s.name} fill={s.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => `${v} invoices`} contentStyle={{ background: 'var(--card)', border: '1px solid var(--card-border)', borderRadius: 10, fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              {invoiceStatusDist.map((s) => (
+                <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: 'var(--text-2)', flex: 1, textTransform: 'capitalize' }}>{s.name}</span>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{s.value}</span>
+                </div>
+              ))}
+            </>
           )}
         </DashboardCard>
       </div>
 
-      <DashboardCard title="Recent invoices" subtitle="Latest documents issued from your workspace">
+      {/* Two-column stats row — the billing equivalent of Smart Garage's Loyalty Stats + Loyalty Config row */}
+      <div className="chart-grid-2">
+        <DashboardCard title="Collections stats" accent="var(--green)">
+          {[
+            ['Overdue invoices', stats.overdue_invoice_count, 'var(--red)'],
+            ['Receipts recorded', stats.receipt_count, 'var(--accent-2)'],
+            ['Revenue, last 30 days', stats.last_30_days_revenue.toLocaleString(), 'var(--green)'],
+          ].map(([l, v, c]) => (
+            <div key={l as string} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+              <span style={{ color: 'var(--text-2)' }}>{l}</span>
+              <span style={{ fontWeight: 800, color: c as string }}>{v}</span>
+            </div>
+          ))}
+          <button className="btn ghost" style={{ marginTop: 12, width: '100%' }} onClick={() => onNav('receipts')}>View receipts →</button>
+        </DashboardCard>
+
+        <DashboardCard title="Quotation pipeline" accent="var(--blue)">
+          {[
+            ['Total quotations', stats.quotation_count, 'var(--text)'],
+            ['Awaiting response', pendingQuotations.length, 'var(--amber)'],
+            ['Converted to invoice', convertedQuotations.length, 'var(--green)'],
+          ].map(([l, v, c]) => (
+            <div key={l as string} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+              <span style={{ color: 'var(--text-2)' }}>{l}</span>
+              <span style={{ fontWeight: 800, color: c as string }}>{v}</span>
+            </div>
+          ))}
+          <button className="btn ghost" style={{ marginTop: 12, width: '100%' }} onClick={() => onNav('quotations')}>View quotations →</button>
+        </DashboardCard>
+      </div>
+
+      {/* Recent invoices — the billing equivalent of Smart Garage's Recent Sessions table */}
+      <DashboardCard title="Recent invoices" action={<button className="btn ghost" onClick={() => onNav('invoices')}>View all →</button>}>
         {recentInvoices.length === 0 ? (
           <EmptyState icon={<Icon path={ICONS.invoice} size={22} />} title="No invoices yet" sub="New invoices you create will show up here first." />
         ) : (
           <table>
-            <thead><tr><th>Number</th><th>Customer</th><th>Status</th><th>Total</th><th>Issued</th></tr></thead>
+            <thead><tr><th>Number</th><th>Customer</th><th>Status</th><th>Total</th><th>Paid</th><th>Issued</th></tr></thead>
             <tbody>
               {recentInvoices.map((inv) => (
-                <tr key={inv.id}>
-                  <td>{inv.number}</td>
+                <tr key={inv.id} style={{ cursor: 'pointer' }} onClick={() => onNav('invoices')}>
+                  <td style={{ fontWeight: 700, color: 'var(--accent)' }}>{inv.number}</td>
                   <td>{inv.customer_name}</td>
                   <td><StatusChip status={inv.status} /></td>
-                  <td>{inv.grand_total.toLocaleString()}</td>
+                  <td style={{ fontWeight: 700 }}>{inv.grand_total.toLocaleString()}</td>
+                  <td style={{ color: 'var(--text-2)' }}>{inv.amount_paid.toLocaleString()}</td>
                   <td>{new Date(inv.issue_date).toLocaleDateString()}</td>
                 </tr>
               ))}
@@ -242,7 +336,7 @@ function LineItemsEditor({ items, setItems }: { items: LineItem[]; setItems: (i:
   )
 }
 
-function InvoicesPanel() {
+function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; onAutoOpenHandled?: () => void }) {
   const { items, loading, reload } = useDocList<InvoiceRow>('invoices')
   const [showForm, setShowForm] = useState(false)
   const [customerName, setCustomerName] = useState('')
@@ -250,6 +344,14 @@ function InvoicesPanel() {
   const [dueDate, setDueDate] = useState('')
   const [items2, setItems2] = useState<LineItem[]>([emptyItem()])
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (autoOpen) {
+      setShowForm(true)
+      onAutoOpenHandled?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen])
 
   async function onCreate() {
     setError(null)

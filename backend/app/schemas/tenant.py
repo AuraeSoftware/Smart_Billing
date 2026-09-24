@@ -23,6 +23,7 @@ class TenantOut(BaseModel):
     slug: str
     contact_email: str
     subscription_status: str
+    currency: str = "INR"
     created_at: datetime
 
     class Config:

@@ -9,11 +9,22 @@ import {
   DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS,
   Modal, DetailRow,
 } from '../components/DashboardUI'
+import {
+  SuperAdminsPage, SubscriptionPlansPage, CurrencyConfigPage,
+  SubscriptionHistoryPage, PaymentSettingsPage, ReportsPage, CredentialsPage,
+} from './supreme/SupremeExtras'
 
 const NAV_ITEMS: NavItem[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'devices', label: 'Device alerts' },
   { key: 'tenants', label: 'Tenants' },
+  { key: 'reports', label: 'Reports' },
+  { key: 'super-admins', label: 'Super Admins' },
+  { key: 'subscription-plans', label: 'Subscription Plans' },
+  { key: 'currency-config', label: 'Currency Config' },
+  { key: 'subscription-history', label: 'Subscription History' },
+  { key: 'payment-settings', label: 'Payment Settings' },
+  { key: 'credentials', label: 'Credentials' },
 ]
 
 interface TenantRow {
@@ -66,7 +77,11 @@ interface PlatformAnalytics {
 }
 
 export default function SupremeAdminDashboard() {
-  const [tab, setTab] = useState<'overview' | 'tenants' | 'devices'>('overview')
+  const [tab, setTab] = useState<
+    'overview' | 'tenants' | 'devices' | 'reports' | 'super-admins' |
+    'subscription-plans' | 'currency-config' | 'subscription-history' |
+    'payment-settings' | 'credentials'
+  >('overview')
   const [tenants, setTenants] = useState<TenantRow[]>([])
   const [events, setEvents] = useState<DeviceEventRow[]>([])
   const [unackOnly, setUnackOnly] = useState(true)
@@ -188,6 +203,14 @@ export default function SupremeAdminDashboard() {
           </table>
         </div>
       )}
+
+      {tab === 'reports' && <ReportsPage />}
+      {tab === 'super-admins' && <SuperAdminsPage />}
+      {tab === 'subscription-plans' && <SubscriptionPlansPage />}
+      {tab === 'currency-config' && <CurrencyConfigPage />}
+      {tab === 'subscription-history' && <SubscriptionHistoryPage />}
+      {tab === 'payment-settings' && <PaymentSettingsPage />}
+      {tab === 'credentials' && <CredentialsPage />}
     </AppLayout>
   )
 }

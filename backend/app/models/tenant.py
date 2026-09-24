@@ -2,7 +2,7 @@ import uuid
 import enum
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Enum, func
+from sqlalchemy import String, DateTime, Enum, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +34,14 @@ class Tenant(Base):
     subscription_status: Mapped[SubscriptionStatus] = mapped_column(
         Enum(SubscriptionStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
         default=SubscriptionStatus.PENDING_ONBOARDING, nullable=False,
+    )
+
+    # Billing/plan attributes — plain string currency (ISO 4217 code, e.g.
+    # "INR"/"USD"), no Python enum, so it can be added as an ordinary column
+    # without any new Postgres ENUM type.
+    currency: Mapped[str] = mapped_column(String(10), nullable=False, default="INR")
+    subscription_plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

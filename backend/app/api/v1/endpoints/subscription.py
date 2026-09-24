@@ -20,6 +20,7 @@ from app.models.user import User, UserRole
 from app.models.branding import TenantBranding
 from app.schemas.tenant import TenantSignupRequest, TenantOut, BrandingOut
 from app.services.subscription import activate_tenant, OnboardingIncompleteError
+from app.services.subscription_events import log_subscription_event
 
 router = APIRouter()
 
@@ -42,6 +43,10 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
     )
     db.add(super_admin)
     db.add(TenantBranding(tenant_id=tenant.id))  # placeholder row, filled by /branding
+    log_subscription_event(
+        db, tenant=tenant, event_type="signed_up",
+        new_value="pending_onboarding", note=f"Tenant signup by {payload.super_admin_full_name}",
+    )
     db.commit()
     db.refresh(tenant)
     return tenant
@@ -93,6 +98,11 @@ def submit_branding(
     except OnboardingIncompleteError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
+    log_subscription_event(
+        db, tenant=tenant, event_type="activated",
+        old_value="pending_onboarding", new_value="active",
+        note="Branding assets uploaded; workspace activated.",
+    )
     db.commit()
     db.refresh(branding)
     return branding
