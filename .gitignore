@@ -18,3 +18,5 @@ frontend/.env.*.local
 .vscode/
 .idea/
 *.log
+
+smart-billing-delivery.zip
