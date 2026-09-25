@@ -16,7 +16,12 @@ class TenantSignupRequest(BaseModel):
     super_admin_full_name: str
     super_admin_email: EmailStr
     super_admin_password: str
+    super_admin_mobile_number: str
     subscription_plan_id: UUID
+    # The currency the plan picker showed them (converted via live rate or a
+    # manual override) — recorded on the tenant so invoices/reports start in
+    # what they actually agreed to pay, not always the plan's native currency.
+    billing_currency: str | None = None
 
 
 class PublicPlanOut(BaseModel):

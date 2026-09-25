@@ -28,19 +28,51 @@ from app.services.subscription import activate_tenant, OnboardingIncompleteError
 from app.services.subscription_events import log_subscription_event
 from app.services.trial import assert_trial_available, claim_trial, TrialAlreadyUsedError
 from app.services.razorpay_client import create_order, verify_signature, RazorpayError
+from app.services.pricing import resolve_plan_price
+from app.core.currencies import WORLD_CURRENCIES, currency_for_phone
 
 router = APIRouter()
 
 
+@router.get("/currencies")
+def list_world_currencies():
+    """Unauthenticated — populates the currency dropdown on the signup plan
+    picker (and doubles as the reference list Currency Configuration's
+    'Add currency' picker uses)."""
+    return WORLD_CURRENCIES
+
+
 @router.get("/plans", response_model=list[PublicPlanOut])
-def list_public_plans(db: Session = Depends(get_db)):
-    """Unauthenticated — the signup page's plan picker reads from here."""
-    return (
+def list_public_plans(
+    currency: str | None = None,
+    mobile_number: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Unauthenticated — the signup page's plan picker reads from here.
+
+    Pricing is resolved per plan into a single currency: an explicit
+    `currency` query param wins; otherwise, if `mobile_number` is given, its
+    country calling code picks the currency automatically (still overridable
+    by the visitor via the currency dropdown, which just calls this again
+    with an explicit `currency`). With neither, each plan is returned in its
+    own native currency, unchanged."""
+    resolved_currency = currency.upper() if currency else (currency_for_phone(mobile_number) if mobile_number else None)
+    plans = (
         db.query(SubscriptionPlan)
         .filter(SubscriptionPlan.is_active.is_(True))
         .order_by(SubscriptionPlan.price)
         .all()
     )
+    out: list[PublicPlanOut] = []
+    for p in plans:
+        curr, price = resolve_plan_price(db, p, resolved_currency)
+        out.append(PublicPlanOut(
+            id=p.id, name=p.name, description=p.description, currency=curr, price=price,
+            billing_cycle=p.billing_cycle, max_users=p.max_users, max_invoices_per_month=p.max_invoices_per_month,
+            color=p.color, has_priority_support=p.has_priority_support, has_api_access=p.has_api_access,
+            has_advanced_reports=p.has_advanced_reports, has_multi_currency=p.has_multi_currency, is_trial=p.is_trial,
+        ))
+    return out
 
 
 @router.post("/signup", response_model=TenantOut, status_code=status.HTTP_201_CREATED)
@@ -68,9 +100,14 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
         except TrialAlreadyUsedError as exc:
             raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
+    # The currency the visitor was actually shown/agreed to — resolved again
+    # here (not trusted blindly from the payload) so a tampered request can't
+    # claim a currency/price combination Currency Configuration never set.
+    billing_currency, _ = resolve_plan_price(db, plan, payload.billing_currency)
+
     tenant = Tenant(
         name=payload.tenant_name, slug=payload.slug, contact_email=payload.contact_email,
-        currency=plan.currency, subscription_plan_id=plan.id,
+        currency=billing_currency, subscription_plan_id=plan.id,
     )
     db.add(tenant)
     db.flush()
@@ -79,6 +116,7 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
         tenant_id=tenant.id, email=payload.super_admin_email,
         hashed_password=hash_password(payload.super_admin_password),
         full_name=payload.super_admin_full_name, role=UserRole.SUPER_ADMIN,
+        mobile_number=payload.super_admin_mobile_number,
     )
     db.add(super_admin)
     db.add(TenantBranding(tenant_id=tenant.id))  # placeholder row, filled by /branding
@@ -158,24 +196,28 @@ def create_payment_order(tenant_id: uuid.UUID, db: Session = Depends(get_db)):
             "Online payment isn't set up yet. Please contact Aurae Software Solutions LLP to complete your subscription.",
         )
 
-    amount_minor = int(round(float(plan.price) * 100))
+    # Charge in the currency the tenant was actually onboarded with (set at
+    # signup from the plan picker, itself auto-detected from their mobile
+    # number or manually chosen) — not always the plan's own native currency.
+    charge_currency, charge_price = resolve_plan_price(db, plan, tenant.currency)
+    amount_minor = int(round(charge_price * 100))
     try:
         order = create_order(
             key_id=gateway.razorpay_key_id, key_secret=gateway.razorpay_key_secret,
-            amount_minor=amount_minor, currency=plan.currency, receipt=f"tenant-{tenant.id}",
+            amount_minor=amount_minor, currency=charge_currency, receipt=f"tenant-{tenant.id}",
         )
     except RazorpayError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
     payment = SubscriptionPayment(
-        tenant_id=tenant.id, subscription_plan_id=plan.id, amount=plan.price,
-        currency=plan.currency, gateway="razorpay", gateway_order_id=order["id"], status="created",
+        tenant_id=tenant.id, subscription_plan_id=plan.id, amount=charge_price,
+        currency=charge_currency, gateway="razorpay", gateway_order_id=order["id"], status="created",
     )
     db.add(payment)
     db.commit()
 
     return PaymentOrderOut(
-        order_id=order["id"], amount=amount_minor, currency=plan.currency,
+        order_id=order["id"], amount=amount_minor, currency=charge_currency,
         key_id=gateway.razorpay_key_id, plan_name=plan.name,
     )
 

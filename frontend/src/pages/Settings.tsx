@@ -131,7 +131,8 @@ function TenantUsersSection() {
           <button className="btn amber" type="submit">Add</button>
         </form>
       )}
-      <table>
+      <div className="table-scroll">
+          <table>
         <thead><tr><th>Name</th><th>Email</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {users.map((u) => (
@@ -144,6 +145,7 @@ function TenantUsersSection() {
           {users.length === 0 && <tr><td colSpan={4} className="muted">No staff accounts yet.</td></tr>}
         </tbody>
       </table>
+          </div>
     </div>
   )
 }

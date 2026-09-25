@@ -19,31 +19,57 @@ interface PublicPlan {
   is_trial: boolean
 }
 
+interface WorldCurrency { code: string; name: string }
+
 /** Step 1 of subscription onboarding (SOW 3.4): business details, your
  * Super Admin account, and the subscription plan you're signing up for.
  * Step 2 (branding) follows and is mandatory before the tenant workspace
  * is usable — a plan is now required too, chosen right here rather than
- * left for the Supreme Admin to assign after the fact. */
+ * left for the Supreme Admin to assign after the fact.
+ *
+ * Currency is automatic from the mobile number's country code, but stays
+ * fully editable: picking a currency from the dropdown marks it as a
+ * manual choice, and further edits to the phone number stop overriding it. */
 export default function SubscribeSignup() {
   const [form, setForm] = useState({
     tenant_name: '', slug: '', contact_email: '',
     super_admin_full_name: '', super_admin_email: '', super_admin_password: '',
-    subscription_plan_id: '',
+    super_admin_mobile_number: '', subscription_plan_id: '',
   })
   const [plans, setPlans] = useState<PublicPlan[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
+  const [currencies, setCurrencies] = useState<WorldCurrency[]>([])
+  const [currency, setCurrency] = useState('')
+  const [currencyTouched, setCurrencyTouched] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
+  // World currency list for the dropdown — loaded once.
   useEffect(() => {
-    apiFetch<PublicPlan[]>('/subscription/plans')
+    apiFetch<WorldCurrency[]>('/subscription/currencies').then(setCurrencies).catch(() => setCurrencies([]))
+  }, [])
+
+  // Plan prices, resolved into a currency: an explicit pick from the
+  // dropdown (currencyTouched) wins; otherwise the mobile number's country
+  // code auto-detects it server-side. Re-fetches whenever either changes.
+  useEffect(() => {
+    setPlansLoading(true)
+    const params = new URLSearchParams()
+    if (currencyTouched && currency) params.set('currency', currency)
+    else if (form.super_admin_mobile_number.trim()) params.set('mobile_number', form.super_admin_mobile_number.trim())
+    const qs = params.toString()
+    apiFetch<PublicPlan[]>(`/subscription/plans${qs ? `?${qs}` : ''}`)
       .then((list) => {
         setPlans(list)
-        if (list.length > 0) setForm((f) => ({ ...f, subscription_plan_id: list[0].id }))
+        if (list.length > 0) {
+          setForm((f) => ({ ...f, subscription_plan_id: f.subscription_plan_id || list[0].id }))
+          if (!currencyTouched) setCurrency(list[0].currency)
+        }
       })
       .finally(() => setPlansLoading(false))
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currencyTouched, currency, form.super_admin_mobile_number])
 
   function update<K extends keyof typeof form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -56,11 +82,15 @@ export default function SubscribeSignup() {
       setError('Please choose a subscription plan.')
       return
     }
+    if (!form.super_admin_mobile_number.trim()) {
+      setError('Please enter your mobile number, with country code (e.g. +91 98765 43210).')
+      return
+    }
     setLoading(true)
     try {
       const tenant = await apiFetch<{ id: string }>('/subscription/signup', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, billing_currency: currency || undefined }),
       })
       // A paid plan needs a completed payment before the workspace can be
       // activated (enforced server-side too) — send them to pay first. A
@@ -96,8 +126,33 @@ export default function SubscribeSignup() {
             <label>Business contact email</label>
             <input type="email" required value={form.contact_email} onChange={(e) => update('contact_email', e.target.value)} />
           </div>
+          <div className="field">
+            <label>Mobile number (with country code)</label>
+            <input
+              required placeholder="+91 98765 43210" value={form.super_admin_mobile_number}
+              onChange={(e) => update('super_admin_mobile_number', e.target.value)}
+            />
+          </div>
+
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />
-          <p className="muted">Choose a plan</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 4 }}>
+            <p className="muted" style={{ margin: 0 }}>Choose a plan</p>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, display: 'flex' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Currency</span>
+              <select
+                value={currency}
+                onChange={(e) => { setCurrency(e.target.value); setCurrencyTouched(true) }}
+                style={{ width: 'auto', minWidth: 140 }}
+              >
+                {currencies.map((c) => (
+                  <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {!currencyTouched && form.super_admin_mobile_number.trim() && (
+            <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Currency auto-detected from your mobile number — pick a different one above any time.</p>
+          )}
           {plansLoading ? (
             <p className="muted">Loading plans…</p>
           ) : plans.length === 0 ? (

@@ -36,8 +36,8 @@ const NAV_ITEMS: NavItem[] = [
 
 interface LineItem { description: string; quantity: number; unit_price: number; tax_rate_percent: number; discount_percent: number }
 
-interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string }
-interface QuotationRow { id: string; number: string; customer_name: string; status: string; grand_total: number; issue_date: string }
+interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string; due_date?: string | null; notes?: string | null }
+interface QuotationRow { id: string; number: string; customer_name: string; status: string; grand_total: number; issue_date: string; valid_until?: string | null; notes?: string | null }
 interface ReceiptRow { id: string; number: string; invoice_id: string; amount: number; received_at: string }
 
 const emptyItem = (): LineItem => ({ description: '', quantity: 1, unit_price: 0, tax_rate_percent: 0, discount_percent: 0 })
@@ -340,6 +340,7 @@ function OverviewPanel({ onNav, onQuickNewInvoice }: { onNav: (key: 'invoices' |
         {recentInvoices.length === 0 ? (
           <EmptyState icon={<Icon path={ICONS.invoice} size={22} />} title="No invoices yet" sub="New invoices you create will show up here first." />
         ) : (
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Number</th><th>Customer</th><th>Status</th><th>Total</th><th>Paid</th><th>Issued</th></tr></thead>
             <tbody>
@@ -355,6 +356,7 @@ function OverviewPanel({ onNav, onQuickNewInvoice }: { onNav: (key: 'invoices' |
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </DashboardCard>
     </>
@@ -401,17 +403,20 @@ function LineItemsEditor({ items, setItems }: { items: LineItem[]; setItems: (i:
   }
   return (
     <div>
-      <div className="item-row" style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>
+      {/* Column header — hidden on phone widths where item-row stacks to one
+          column (see index.css); each input carries its own placeholder
+          there instead, so meaning survives the stack. */}
+      <div className="item-row item-row-head" style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>
         <span>Description</span><span>Qty</span><span>Unit price</span><span>Tax %</span><span>Disc %</span><span></span>
       </div>
       {items.map((it, i) => (
         <div className="item-row" key={i}>
           <input placeholder="Item description" value={it.description} onChange={(e) => update(i, { description: e.target.value })} required />
-          <input type="number" step="0.01" value={it.quantity} onChange={(e) => update(i, { quantity: Number(e.target.value) })} />
-          <input type="number" step="0.01" value={it.unit_price} onChange={(e) => update(i, { unit_price: Number(e.target.value) })} />
-          <input type="number" step="0.01" value={it.tax_rate_percent} onChange={(e) => update(i, { tax_rate_percent: Number(e.target.value) })} />
-          <input type="number" step="0.01" value={it.discount_percent} onChange={(e) => update(i, { discount_percent: Number(e.target.value) })} />
-          <button type="button" className="btn secondary" onClick={() => setItems(items.filter((_, idx) => idx !== i))}>✕</button>
+          <input type="number" step="0.01" placeholder="Qty" value={it.quantity} onChange={(e) => update(i, { quantity: Number(e.target.value) })} />
+          <input type="number" step="0.01" placeholder="Unit price" value={it.unit_price} onChange={(e) => update(i, { unit_price: Number(e.target.value) })} />
+          <input type="number" step="0.01" placeholder="Tax %" value={it.tax_rate_percent} onChange={(e) => update(i, { tax_rate_percent: Number(e.target.value) })} />
+          <input type="number" step="0.01" placeholder="Disc %" value={it.discount_percent} onChange={(e) => update(i, { discount_percent: Number(e.target.value) })} />
+          <button type="button" className="btn secondary" onClick={() => setItems(items.filter((_, idx) => idx !== i))}>✕ Remove</button>
         </div>
       ))}
       <button type="button" className="btn secondary" onClick={() => setItems([...items, emptyItem()])}>+ Add line</button>
@@ -425,6 +430,7 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
   const [customerName, setCustomerName] = useState('')
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10))
   const [dueDate, setDueDate] = useState('')
+  const [notes, setNotes] = useState('')
   const [items2, setItems2] = useState<LineItem[]>([emptyItem()])
   const [error, setError] = useState<string | null>(null)
 
@@ -438,7 +444,7 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
 
   async function onCreate() {
     setError(null)
-    const payload = { customer_name: customerName, issue_date: issueDate, due_date: dueDate || null, items: items2 }
+    const payload = { customer_name: customerName, issue_date: issueDate, due_date: dueDate || null, notes: notes || null, items: items2 }
     try {
       if (isOnline()) {
         await apiFetch('/invoices', { method: 'POST', body: JSON.stringify(payload) })
@@ -446,7 +452,7 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
         await queueOfflineCreate('invoices', payload)
       }
       setShowForm(false)
-      setCustomerName(''); setItems2([emptyItem()])
+      setCustomerName(''); setItems2([emptyItem()]); setNotes('')
       reload()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create invoice.')
@@ -462,9 +468,13 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
       {showForm && (
         <div style={{ marginTop: 12, marginBottom: 20 }}>
           <div className="field"><label>Customer name</label><input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required /></div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div className="field" style={{ flex: 1 }}><label>Issue date</label><input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
-            <div className="field" style={{ flex: 1 }}><label>Due date</label><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Issue date</label><input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
+            <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Due date</label><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+          </div>
+          <div className="field">
+            <label>Purpose (what this invoice is for)</label>
+            <input placeholder="e.g. Website design — milestone 2" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           <LineItemsEditor items={items2} setItems={setItems2} />
           {error && <p className="error-text">{error}</p>}
@@ -473,12 +483,16 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
         </div>
       )}
       {loading ? <p className="muted">Loading…</p> : (
-        <table>
-          <thead><tr><th>Number</th><th>Customer</th><th>Status</th><th>Total</th><th>Paid</th><th></th></tr></thead>
+        <div className="table-scroll">
+          <table>
+          <thead><tr><th>Number</th><th>Customer</th><th>Purpose</th><th>Issue date</th><th>Due date</th><th>Status</th><th>Total</th><th>Paid</th><th></th></tr></thead>
           <tbody>
             {items.map((inv) => (
               <tr key={inv.id}>
-                <td>{inv.number}</td><td>{inv.customer_name}</td><td>{inv.status}</td>
+                <td>{inv.number}</td><td>{inv.customer_name}</td>
+                <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{inv.notes || <span className="muted">—</span>}</td>
+                <td>{inv.issue_date}</td><td>{inv.due_date || <span className="muted">—</span>}</td>
+                <td><StatusChip status={inv.status} /></td>
                 <td>{inv.grand_total}</td><td>{inv.amount_paid}</td>
                 <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button className="btn secondary" onClick={() => downloadPdf(`/invoices/${inv.id}/pdf`, `${inv.number}.pdf`)}>PDF</button>
@@ -488,6 +502,7 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
             ))}
           </tbody>
         </table>
+          </div>
       )}
     </div>
   )
@@ -523,12 +538,13 @@ function QuotationsPanel() {
   const [customerName, setCustomerName] = useState('')
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10))
   const [validUntil, setValidUntil] = useState('')
+  const [notes, setNotes] = useState('')
   const [items2, setItems2] = useState<LineItem[]>([emptyItem()])
   const [error, setError] = useState<string | null>(null)
 
   async function onCreate() {
     setError(null)
-    const payload = { customer_name: customerName, issue_date: issueDate, valid_until: validUntil || null, items: items2 }
+    const payload = { customer_name: customerName, issue_date: issueDate, valid_until: validUntil || null, notes: notes || null, items: items2 }
     try {
       if (isOnline()) {
         await apiFetch('/quotations', { method: 'POST', body: JSON.stringify(payload) })
@@ -536,7 +552,7 @@ function QuotationsPanel() {
         await queueOfflineCreate('quotations', payload)
       }
       setShowForm(false)
-      setCustomerName(''); setItems2([emptyItem()])
+      setCustomerName(''); setItems2([emptyItem()]); setNotes('')
       reload()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create quotation.')
@@ -557,9 +573,13 @@ function QuotationsPanel() {
       {showForm && (
         <div style={{ marginTop: 12, marginBottom: 20 }}>
           <div className="field"><label>Customer name</label><input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required /></div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div className="field" style={{ flex: 1 }}><label>Issue date</label><input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
-            <div className="field" style={{ flex: 1 }}><label>Valid until</label><input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Issue date</label><input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
+            <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Valid until</label><input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></div>
+          </div>
+          <div className="field">
+            <label>Purpose (what this quotation is for)</label>
+            <input placeholder="e.g. Branding package — logo + guidelines" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           <LineItemsEditor items={items2} setItems={setItems2} />
           {error && <p className="error-text">{error}</p>}
@@ -567,12 +587,17 @@ function QuotationsPanel() {
         </div>
       )}
       {loading ? <p className="muted">Loading…</p> : (
-        <table>
-          <thead><tr><th>Number</th><th>Customer</th><th>Status</th><th>Total</th><th></th></tr></thead>
+        <div className="table-scroll">
+          <table>
+          <thead><tr><th>Number</th><th>Customer</th><th>Purpose</th><th>Issue date</th><th>Valid until</th><th>Status</th><th>Total</th><th></th></tr></thead>
           <tbody>
             {items.map((q) => (
               <tr key={q.id}>
-                <td>{q.number}</td><td>{q.customer_name}</td><td>{q.status}</td><td>{q.grand_total}</td>
+                <td>{q.number}</td><td>{q.customer_name}</td>
+                <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{q.notes || <span className="muted">—</span>}</td>
+                <td>{q.issue_date}</td><td>{q.valid_until || <span className="muted">—</span>}</td>
+                <td><StatusChip status={q.status} /></td>
+                <td>{q.grand_total}</td>
                 <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button className="btn secondary" onClick={() => downloadPdf(`/quotations/${q.id}/pdf`, `${q.number}.pdf`)}>PDF</button>
                   {q.status !== 'converted' && <button className="btn secondary" onClick={() => onConvert(q.id)}>Convert to invoice</button>}
@@ -582,6 +607,7 @@ function QuotationsPanel() {
             ))}
           </tbody>
         </table>
+          </div>
       )}
     </div>
   )
@@ -669,7 +695,8 @@ function ReceiptsPanel() {
         </div>
       )}
       {loading ? <p className="muted">Loading…</p> : (
-        <table>
+        <div className="table-scroll">
+          <table>
           <thead><tr><th>Number</th><th>Amount</th><th>Received</th><th></th></tr></thead>
           <tbody>
             {items.map((r) => (
@@ -680,6 +707,7 @@ function ReceiptsPanel() {
             ))}
           </tbody>
         </table>
+          </div>
       )}
     </div>
   )

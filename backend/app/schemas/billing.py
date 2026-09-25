@@ -35,6 +35,7 @@ class InvoiceOut(BaseModel):
     id: UUID
     number: str
     customer_name: str
+    customer_email: Optional[str] = None
     status: str
     issue_date: date
     due_date: Optional[date]
@@ -43,6 +44,11 @@ class InvoiceOut(BaseModel):
     discount_total: float
     grand_total: float
     amount_paid: float
+    # The purpose/description captured at creation (InvoiceCreate.notes) was
+    # already stored on the model but never returned — the list table and
+    # detail view had no way to show it. Purely additive: no existing field
+    # changes meaning or shape.
+    notes: Optional[str] = None
     items: list[LineItemOut]
     created_at: datetime
 
@@ -63,6 +69,7 @@ class QuotationOut(BaseModel):
     id: UUID
     number: str
     customer_name: str
+    customer_email: Optional[str] = None
     status: str
     revision: int
     issue_date: date
@@ -71,6 +78,9 @@ class QuotationOut(BaseModel):
     tax_total: float
     discount_total: float
     grand_total: float
+    # Same addition as InvoiceOut.notes — already captured at creation,
+    # never surfaced back out.
+    notes: Optional[str] = None
     items: list[LineItemOut]
     created_at: datetime
 

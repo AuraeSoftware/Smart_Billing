@@ -3,9 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#231F20" />
     <meta name="description" content="Smart Billing — multi-tenant invoicing, quotation & receipt platform" />
+    <!-- iOS ignores the web manifest for home-screen install, so it needs
+         its own icon and standalone-mode hints. Android/desktop read the
+         manifest (see vite.config.ts) and ignore these. -->
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Smart Billing" />
     <title>Smart Billing</title>
   </head>
   <body>

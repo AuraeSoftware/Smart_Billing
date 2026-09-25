@@ -129,6 +129,12 @@ a { color: inherit; }
 .app-shell {
   min-height: 100vh;
   display: flex;
+  /* viewport-fit=cover (index.html) lets the themed background run under
+     the notch/home-indicator on iOS; these keep actual content clear of
+     them. env() is 0 on devices without a safe area, so this is a no-op
+     everywhere else. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 .sidebar {
@@ -151,6 +157,11 @@ a { color: inherit; }
   gap: 8px;
 }
 .sidebar .brand .dot { color: var(--accent); }
+
+/* Hidden on desktop; the drawer close (✕) and topbar hamburger only matter
+   once the sidebar becomes an overlay, below 900px. */
+.sidebar-close { display: none; }
+.hamburger-btn { display: none; }
 
 .sidebar nav {
   display: flex;
@@ -195,6 +206,7 @@ a { color: inherit; }
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   padding: 14px 28px;
+  padding-top: calc(14px + env(safe-area-inset-top));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -210,6 +222,7 @@ main.content {
   max-width: 1080px;
   margin: 0 auto;
   padding: 28px 28px 60px;
+  padding-bottom: calc(60px + env(safe-area-inset-bottom));
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -253,6 +266,11 @@ h2 { font-size: 17px; }
 
 .btn.warn { background: var(--red); }
 .btn.warn:hover { filter: brightness(0.92); }
+
+/* Distinct from .warn (suspend/reversible actions) — a solid red border
+   marks irreversible destructive actions like deleting a tenant. */
+.btn.danger { background: var(--bg-2); color: var(--red); border: 1.5px solid var(--red); }
+.btn.danger:hover { background: var(--red); color: #fff; }
 
 .btn.amber { background: var(--highlight); color: #fff; }
 .btn.amber:hover { filter: brightness(0.94); }
@@ -314,7 +332,14 @@ label input:focus, label select:focus, label textarea:focus {
 }
 label input[type="checkbox"] { width: auto; padding: 0; border: none; background: none; }
 
+/* Every <table> in the app is wrapped in this — lets a wide table (lots of
+   columns) scroll horizontally on a phone/tablet instead of squashing or
+   overflowing the page, without dropping a single column. */
+.table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
+@media (max-width: 700px) {
+  .table-scroll table { min-width: 640px; }
+}
 th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
 th { color: var(--text-3); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 tbody tr:hover { background: var(--card-hover); }
@@ -455,6 +480,80 @@ tbody tr:hover { background: var(--card-hover); }
   justify-content: center;
   background: var(--bg);
   padding: 24px;
+  padding-top: calc(24px + env(safe-area-inset-top));
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  padding-left: calc(24px + env(safe-area-inset-left));
+  padding-right: calc(24px + env(safe-area-inset-right));
 }
 .auth-card { width: 100%; max-width: 440px; }
 .auth-wide { max-width: 640px; }
+
+/* ══════════════════════════════════════════════════════════
+   RESPONSIVE — laptop/tablet keep the fixed sidebar with tighter
+   spacing; phone/tablet-portrait turn it into a slide-in drawer so
+   nothing in the nav or the workflow it exposes is ever dropped.
+══════════════════════════════════════════════════════════ */
+
+/* Laptop / small-desktop: same layout, just less padding. */
+@media (max-width: 1200px) {
+  main.content { max-width: 100%; padding: 22px 20px 50px; }
+}
+
+/* Tablet and phone: sidebar becomes an overlay drawer. */
+@media (max-width: 900px) {
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 1100;
+    width: min(84vw, 300px);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: var(--shadow-lg);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-close {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; margin-left: auto; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--bg-3); color: var(--text-3);
+    cursor: pointer; font-size: 13px;
+  }
+  .sidebar-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1090;
+    backdrop-filter: blur(2px);
+  }
+  .hamburger-btn {
+    display: flex; flex-direction: column; justify-content: center; gap: 4px;
+    width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg-3); cursor: pointer; flex-shrink: 0; padding: 0;
+  }
+  .hamburger-btn span { display: block; width: 16px; height: 2px; background: var(--text-2); margin: 0 auto; border-radius: 2px; }
+
+  .topbar { padding: 12px 14px; }
+  .topbar .title { font-size: 14px; }
+  .topbar-actions { gap: 8px; }
+  .topbar-actions .btn.ghost { padding: 6px 8px; font-size: 13px; }
+
+  main.content { padding: 16px 14px 40px; }
+  .card { padding: 16px; }
+}
+
+/* Phone: collapse remaining multi-column layout patterns to one column and
+   shrink type/spacing further. Grids built with inline
+   repeat(auto-fit,minmax(Npx,1fr)) already reflow on their own — this
+   targets what plain CSS classes and typography still need. */
+@media (max-width: 560px) {
+  main.content { padding: 12px 10px 32px; }
+  .card { padding: 14px; border-radius: 10px; }
+  .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .kpi-card { padding: 14px; }
+  .kpi-card-value { font-size: 22px; }
+  .command-bar { align-items: flex-start; }
+  .command-bar h2 { font-size: 16px; }
+  table { font-size: 12.5px; }
+  th, td { padding: 8px 6px; }
+  .item-row { grid-template-columns: 1fr; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; }
+  .item-row-head { display: none; }
+  .auth-card, .auth-wide { max-width: 100%; }
+  .auth-shell { padding: 16px; }
+}
+

@@ -138,6 +138,7 @@ export function CustomersPage() {
         {loading ? <p className="muted">Loading…</p> : filtered.length === 0 ? (
           <EmptyState icon={<Icon path={ICONS.users} size={22} />} title="No customers yet" sub="Customers appear here as soon as you create an invoice or quotation." />
         ) : (
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Customer</th><th>Email</th><th>Invoices</th><th>Quotations</th><th>Billed</th><th>Paid</th><th>Last activity</th></tr></thead>
             <tbody>
@@ -154,6 +155,7 @@ export function CustomersPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </DashboardCard>
     </div>
@@ -229,6 +231,7 @@ export function TeamPage() {
         {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
           <EmptyState icon={<Icon path={ICONS.users} size={22} />} title="No team members yet" sub="Add a staff account so they can log in under your workspace." />
         ) : (
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Added</th><th></th></tr></thead>
             <tbody>
@@ -243,6 +246,7 @@ export function TeamPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </DashboardCard>
 
@@ -357,6 +361,7 @@ export function CatalogPage() {
         {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
           <EmptyState icon={<Icon path={ICONS.invoice} size={22} />} title="No catalog items yet" sub="Click 'Add item' to save your first reusable line item." />
         ) : (
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Item</th><th>Unit</th><th>Unit price</th><th>Tax %</th><th>Status</th><th></th></tr></thead>
             <tbody>
@@ -378,6 +383,7 @@ export function CatalogPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </DashboardCard>
 
@@ -484,6 +490,7 @@ export function GstManagerPage() {
         {codes.length === 0 ? (
           <EmptyState title="No tax codes saved yet" sub="Add the HSN/SAC codes you commonly bill under." />
         ) : (
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Code</th><th>Description</th><th>GST rate</th><th></th></tr></thead>
             <tbody>
@@ -497,6 +504,7 @@ export function GstManagerPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </DashboardCard>
 

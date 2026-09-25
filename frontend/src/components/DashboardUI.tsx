@@ -128,24 +128,27 @@ export function Modal({
       }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div style={{
+      <div className="modal-panel" style={{
         background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 16, padding: 24,
         width: '100%', maxWidth, boxShadow: 'var(--shadow-lg)', maxHeight: '90vh', overflowY: 'auto',
+        position: 'relative',
       }}>
-        {title && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{title}</h3>
-            <button
-              onClick={onClose}
-              style={{
-                background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-3)',
-                cursor: 'pointer', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        {/* Close button always renders, title or not — every popup gets a
+            visible, click-away-independent way out. */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: title ? 20 : 8 }}>
+          {title ? <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{title}</h3> : <span />}
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            style={{
+              background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-3)',
+              cursor: 'pointer', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 14, flexShrink: 0, marginLeft: 'auto',
+            }}
+          >
+            ✕
+          </button>
+        </div>
         {children}
       </div>
     </div>

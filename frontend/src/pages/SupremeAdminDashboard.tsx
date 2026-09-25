@@ -158,6 +158,7 @@ export default function SupremeAdminDashboard() {
             Visible only here — Super Admins cannot see this log (SOW 3.3). A device change on any
             Super Admin credential appears below; suspend a credential directly if it looks wrong.
           </p>
+          <div className="table-scroll">
           <table>
             <thead><tr><th>When</th><th>Event</th><th>Device</th><th>Detail</th><th></th></tr></thead>
             <tbody>
@@ -184,6 +185,7 @@ export default function SupremeAdminDashboard() {
               {events.length === 0 && <tr><td colSpan={5} className="muted">No events to show.</td></tr>}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -421,6 +423,7 @@ function PlatformCommandCenter({
         {tenantRevenueSorted.length === 0 ? (
           <EmptyState icon={<Icon path={ICONS.building} size={22} />} title="No tenants registered" />
         ) : (
+          <div className="table-scroll">
           <table>
             <thead>
               <tr>
@@ -444,6 +447,7 @@ function PlatformCommandCenter({
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </DashboardCard>
 

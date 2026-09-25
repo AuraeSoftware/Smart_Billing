@@ -29,6 +29,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Captured at signup for Super Admins — its country calling code drives
+    # the automatic currency/plan-price selection (see app/core/currencies.py).
+    # Nullable: existing users predate this field, and Supreme Admins never set one.
+    mobile_number: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, values_callable=lambda enum_cls: [e.value for e in enum_cls]), nullable=False
     )

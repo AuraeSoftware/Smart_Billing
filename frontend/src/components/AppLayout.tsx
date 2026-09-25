@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import ThemeToggle from './ThemeToggle'
 import { useAuth } from '../lib/auth'
 
@@ -24,19 +24,30 @@ interface AppLayoutProps {
 export default function AppLayout({ brandSuffix, navItems, activeKey, onNavigate, topbarExtra, children }: AppLayoutProps) {
   const { session, setSession } = useAuth()
   const activeLabel = navItems.find((n) => n.key === activeKey)?.label ?? ''
+  // Sidebar is a fixed column on laptop/desktop and a slide-in drawer below
+  // 900px (tablet/phone) — same nav, same items, nothing dropped, just
+  // hidden behind a hamburger button until opened.
+  const [navOpen, setNavOpen] = useState(false)
+
+  function navigate(key: string) {
+    onNavigate(key)
+    setNavOpen(false)
+  }
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      {navOpen && <div className="sidebar-backdrop" onClick={() => setNavOpen(false)} />}
+      <aside className={`sidebar${navOpen ? ' open' : ''}`}>
         <div className="brand">
           SMART<span className="dot">•</span>BILLING
+          <button className="sidebar-close" aria-label="Close menu" onClick={() => setNavOpen(false)}>✕</button>
         </div>
         <nav>
           {navItems.map((item) => (
             <button
               key={item.key}
               className={item.key === activeKey ? 'active' : ''}
-              onClick={() => onNavigate(item.key)}
+              onClick={() => navigate(item.key)}
             >
               {item.label}
             </button>
@@ -49,7 +60,12 @@ export default function AppLayout({ brandSuffix, navItems, activeKey, onNavigate
       </aside>
       <div className="main-area">
         <header className="topbar">
-          <div className="title">{activeLabel}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <button className="hamburger-btn" aria-label="Open menu" onClick={() => setNavOpen(true)}>
+              <span /><span /><span />
+            </button>
+            <div className="title">{activeLabel}</div>
+          </div>
           <div className="topbar-actions">
             {topbarExtra}
             <ThemeToggle />

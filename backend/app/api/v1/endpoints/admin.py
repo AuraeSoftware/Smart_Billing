@@ -21,9 +21,11 @@ from app.models.payment_settings import PlatformPaymentSettings
 from app.models.currency_config import CurrencyRate, PlanCurrencyOverride
 from app.schemas.tenant import TenantOut
 from app.core.security import hash_password, verify_password
+from app.core.currencies import WORLD_CURRENCIES
 from app.services.device_binding import suspend_credential, reactivate_credential, deregister_device
 from app.services.subscription_events import log_subscription_event
 from app.services.usage import usage_snapshot
+from app.services.fx_client import fetch_live_rates, FxRateError
 
 router = APIRouter()
 
@@ -346,6 +348,25 @@ def cancel_tenant(tenant_id: uuid.UUID, db: Session = Depends(get_db), admin: Us
     return {"ok": True}
 
 
+@router.delete("/tenants/{tenant_id}")
+def delete_tenant(tenant_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    """Permanently removes a tenant workspace — the Super Admin account,
+    every invoice/quotation/receipt, branding, catalog, GST settings, device
+    sessions, and subscription/payment history that belong to it. This is
+    the "Delete" action on the Super Admins page, distinct from Suspend
+    (which keeps everything and just blocks access) and Cancel (which only
+    changes subscription_status). Irreversible — every table scoped to this
+    tenant has ON DELETE CASCADE on tenant_id, so one delete here removes
+    the whole workspace in a single transaction. The frontend confirms with
+    the admin before calling this."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one_or_none()
+    if tenant is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant not found.")
+    db.delete(tenant)
+    db.commit()
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------------
 # Subscription History
 # ---------------------------------------------------------------------------
@@ -516,6 +537,32 @@ def update_currency_config(payload: CurrencyConfigIn, db: Session = Depends(get_
         if row is None:
             row = PlanCurrencyOverride(id=uuid.uuid4(), plan_id=o.plan_id, currency=o.currency.upper())
         row.price = o.price
+        db.add(row)
+    db.commit()
+    return get_currency_config(db=db, _=None)
+
+
+@router.post("/currency-config/refresh-live", response_model=CurrencyConfigOut)
+def refresh_live_currency_rates(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    """Pulls live exchange rates (base: INR) and overwrites every rate in
+    WORLD_CURRENCIES — the "Refresh live rates" button on Currency
+    Configuration. Any rate for a currency outside that list (the Supreme
+    Admin's own manual additions) is left untouched. Manual plan-price
+    overrides always take precedence over the rate regardless, so this never
+    changes what a tenant already agreed to pay."""
+    try:
+        live = fetch_live_rates("INR")
+    except FxRateError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+    for c in WORLD_CURRENCIES:
+        code = c["code"]
+        if code == "INR" or code not in live:
+            continue
+        row = db.query(CurrencyRate).filter(CurrencyRate.currency == code).one_or_none()
+        if row is None:
+            row = CurrencyRate(id=uuid.uuid4(), currency=code)
+        row.rate_vs_base = live[code]
         db.add(row)
     db.commit()
     return get_currency_config(db=db, _=None)

@@ -67,6 +67,9 @@ export function SuperAdminsPage() {
   const [editing, setEditing] = useState<SuperAdminRow | null>(null)
   const [editForm, setEditForm] = useState({ full_name: '', email: '', new_password: '' })
   const [showSub, setShowSub] = useState<SuperAdminRow | null>(null)
+  const [deleting, setDeleting] = useState<SuperAdminRow | null>(null)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deleteError, setDeleteError] = useState('')
 
   async function load() {
     setLoading(true)
@@ -122,6 +125,30 @@ export function SuperAdminsPage() {
     await apiFetch(`/admin/tenants/${showSub.tenant_id}/assign-plan`, { method: 'POST', body: JSON.stringify({ plan_id: planId }) })
     setShowSub(null)
     load()
+  }
+
+  // Permanently removes the tenant workspace — Super Admin login, every
+  // invoice/quotation/receipt, branding, catalog, plan/payment history.
+  // Distinct from suspend (reversible, keeps data) — this cannot be undone,
+  // so it requires the admin to type the tenant's name to confirm.
+  function openDelete(r: SuperAdminRow) {
+    setDeleting(r)
+    setDeleteConfirmText('')
+    setDeleteError('')
+  }
+  async function confirmDelete() {
+    if (!deleting || !deleting.tenant_id) return
+    if (deleteConfirmText.trim() !== (deleting.tenant_name || '')) {
+      setDeleteError('Type the tenant name exactly to confirm.')
+      return
+    }
+    try {
+      await apiFetch(`/admin/tenants/${deleting.tenant_id}`, { method: 'DELETE' })
+      setDeleting(null)
+      load()
+    } catch (e) {
+      setDeleteError(e instanceof ApiError ? e.message : 'Could not delete this workspace.')
+    }
   }
 
   return (
@@ -207,12 +234,17 @@ export function SuperAdminsPage() {
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: 8, marginBottom: r.tenant_id ? 8 : 0 }}>
-                  <button className="btn ghost" style={{ flex: 1, padding: 6 }} onClick={() => openEdit(r)}>Edit</button>
-                  <button className="btn secondary" style={{ flex: 1, padding: 6 }} onClick={() => setShowSub(r)}>Plan</button>
-                  <button className={isSuspended ? 'btn' : 'btn warn'} style={{ flex: 1, padding: 6 }} onClick={() => toggleSuspend(r)} title="Suspends only this person's login — the tenant's workspace stays as-is.">
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                  <button className="btn ghost" style={{ flex: 1, minWidth: 90, padding: 6 }} onClick={() => openEdit(r)}>Edit</button>
+                  <button className="btn secondary" style={{ flex: 1, minWidth: 90, padding: 6 }} onClick={() => setShowSub(r)}>Plan</button>
+                  <button className={isSuspended ? 'btn' : 'btn warn'} style={{ flex: 1, minWidth: 90, padding: 6 }} onClick={() => toggleSuspend(r)} title="Suspends only this person's login — the tenant's workspace stays as-is.">
                     {isSuspended ? 'Activate login' : 'Suspend login'}
                   </button>
+                  {r.tenant_id && (
+                    <button className="btn danger" style={{ flex: 1, minWidth: 90, padding: 6 }} onClick={() => openDelete(r)} title="Permanently deletes this tenant's workspace and all its data.">
+                      Delete
+                    </button>
+                  )}
                 </div>
 
                 {/* Tenant workspace activation — separate from the login toggle
@@ -248,6 +280,26 @@ export function SuperAdminsPage() {
             <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
               <button className="btn" style={{ flex: 1 }} onClick={saveEdit}>Save changes</button>
               <button className="btn ghost" onClick={() => setEditing(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal title={`Delete workspace — ${deleting?.tenant_name || deleting?.full_name}`} open={!!deleting} onClose={() => setDeleting(null)} maxWidth={460}>
+        {deleting && (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text-2)' }}>
+              This permanently deletes <b>{deleting.tenant_name}</b>'s workspace — the Super Admin login, every invoice,
+              quotation, and receipt, branding, catalog, and billing history. This cannot be undone.
+            </p>
+            <label>
+              Type <b>{deleting.tenant_name}</b> to confirm
+              <input value={deleteConfirmText} onChange={(e) => setDeleteConfirmText(e.target.value)} placeholder={deleting.tenant_name || ''} />
+            </label>
+            {deleteError && <p className="error-text">{deleteError}</p>}
+            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+              <button className="btn danger" style={{ flex: 1 }} onClick={confirmDelete}>Delete permanently</button>
+              <button className="btn ghost" onClick={() => setDeleting(null)}>Cancel</button>
             </div>
           </div>
         )}
@@ -473,22 +525,25 @@ export function SubscriptionPlansPage() {
 
 interface CurrencyRate { currency: string; rate_vs_base: number }
 interface PlanOverride { plan_id: string; currency: string; price: number }
-
-const COMMON_CURRENCIES = ['USD', 'EUR', 'GBP', 'AED', 'SGD', 'MYR', 'AUD']
+interface WorldCurrency { code: string; name: string }
 
 export function CurrencyConfigPage() {
   const [rates, setRates] = useState<Record<string, number>>({})
   const [overrides, setOverrides] = useState<Record<string, Record<string, number>>>({})
   const [plans, setPlans] = useState<PlanRow[]>([])
+  const [worldCurrencies, setWorldCurrencies] = useState<WorldCurrency[]>([])
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [addCurrency, setAddCurrency] = useState('')
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
 
   async function load() {
-    const [cfg, planList] = await Promise.all([
+    const [cfg, planList, worldList] = await Promise.all([
       apiFetch<{ base_currency: string; rates: CurrencyRate[]; overrides: PlanOverride[] }>('/admin/currency-config'),
       apiFetch<PlanRow[]>('/admin/subscription-plans'),
+      apiFetch<WorldCurrency[]>('/subscription/currencies'),
     ])
     const rateMap: Record<string, number> = {}
     cfg.rates.forEach((r) => { rateMap[r.currency] = r.rate_vs_base })
@@ -497,13 +552,19 @@ export function CurrencyConfigPage() {
     setRates(rateMap)
     setOverrides(ovrMap)
     setPlans(planList)
+    setWorldCurrencies(worldList)
   }
   useEffect(() => { load() }, [])
 
+  // "All over the world" — every configured rate plus the full reference
+  // list, so an admin can bring any world currency online with one click
+  // even before it has a saved rate.
   const currencies = useMemo(() => {
-    const set = new Set([...Object.keys(rates), ...COMMON_CURRENCIES])
+    const set = new Set([...Object.keys(rates), ...worldCurrencies.map((c) => c.code)])
     return Array.from(set).filter((c) => c.toLowerCase().includes(search.toLowerCase())).sort()
-  }, [rates, search])
+  }, [rates, worldCurrencies, search])
+
+  const currencyName = (code: string) => worldCurrencies.find((c) => c.code === code)?.name
 
   function setRate(curr: string, val: number) {
     setRates((r) => ({ ...r, [curr]: val }))
@@ -535,26 +596,54 @@ export function CurrencyConfigPage() {
     }
   }
 
+  // Pulls today's live rates (base INR) for every world currency and
+  // overwrites their rate_vs_base — a manual edit afterward (and Save) can
+  // still override any of them; this just refreshes the starting point.
+  async function refreshLive() {
+    setRefreshing(true)
+    try {
+      const cfg = await apiFetch<{ rates: CurrencyRate[] }>('/admin/currency-config/refresh-live', { method: 'POST' })
+      const rateMap: Record<string, number> = {}
+      cfg.rates.forEach((r) => { rateMap[r.currency] = r.rate_vs_base })
+      setRates(rateMap)
+      setLastRefreshed(new Date().toLocaleString())
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   return (
     <DashboardCard
       title="Currency Configuration"
-      subtitle="Exchange rates against INR (the platform base currency) and manual plan price overrides per currency."
-      action={<button className="btn" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Configuration'}</button>}
+      subtitle="Live exchange rates against INR (the platform base currency), editable per currency, plus manual plan price overrides."
+      action={
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {lastRefreshed && <span className="muted" style={{ fontSize: 11 }}>Refreshed {lastRefreshed}</span>}
+          <button className="btn secondary" onClick={refreshLive} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh live rates'}</button>
+          <button className="btn" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Configuration'}</button>
+        </div>
+      }
     >
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-        <input placeholder="Search currency (e.g. USD)…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1 }} />
-        <input placeholder="Add currency code…" value={addCurrency} onChange={(e) => setAddCurrency(e.target.value)} style={{ width: 160 }} />
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <input placeholder="Search currency (e.g. USD)…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, minWidth: 180 }} />
+        <select value={addCurrency} onChange={(e) => setAddCurrency(e.target.value)} style={{ width: 220 }}>
+          <option value="">Add a world currency…</option>
+          {worldCurrencies.filter((c) => !(c.code in rates)).map((c) => (
+            <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+          ))}
+        </select>
         <button className="btn secondary" onClick={addNewCurrency}>Add</button>
       </div>
 
-      <table>
+      <div className="table-scroll">
+          <table>
         <thead><tr><th>Currency</th><th>Exchange rate (1 INR =)</th><th></th></tr></thead>
         <tbody>
           {currencies.length === 0 && <tr><td colSpan={3} className="muted">No matches found.</td></tr>}
           {currencies.map((c) => (
             <Fragment key={c}>
               <tr style={{ cursor: 'pointer' }} onClick={() => setExpanded(expanded === c ? null : c)}>
-                <td style={{ fontWeight: 700 }}>{c}</td>
+                <td style={{ fontWeight: 700 }}>{c}{currencyName(c) && <span className="muted" style={{ fontWeight: 400, marginLeft: 6 }}>{currencyName(c)}</span>}</td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <input type="number" step="0.0001" value={rates[c] ?? 1} onChange={(e) => setRate(c, Number(e.target.value))} style={{ width: 110 }} />
                 </td>
@@ -588,6 +677,7 @@ export function CurrencyConfigPage() {
           ))}
         </tbody>
       </table>
+          </div>
     </DashboardCard>
   )
 }
@@ -702,6 +792,7 @@ export function SubscriptionHistoryPage() {
         {loading ? <p className="muted">Loading…</p> : filtered.length === 0 ? (
           <EmptyState title="No transactions found" sub="Try a different period or search term." />
         ) : (
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Date</th><th>Tenant</th><th>Event</th><th>Change</th><th>By</th></tr></thead>
             <tbody>
@@ -716,6 +807,7 @@ export function SubscriptionHistoryPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </DashboardCard>
     </div>
@@ -853,6 +945,7 @@ export function CredentialsPage() {
         {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
           <EmptyState title="No Super Admins yet" />
         ) : (
+          <div className="table-scroll">
           <table>
             <thead><tr><th>Name</th><th>Email</th><th>Tenant</th><th>Status</th><th></th></tr></thead>
             <tbody>
@@ -870,6 +963,7 @@ export function CredentialsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </DashboardCard>
 
@@ -929,7 +1023,8 @@ export function ReportsPage() {
         <div><div className="muted">Without a plan</div><div style={{ fontSize: 20, fontWeight: 800, color: noPlan > 0 ? 'var(--amber)' : 'var(--text)' }}>{noPlan}</div></div>
       </div>
       {rows.length === 0 ? <EmptyState title="No data yet" /> : (
-        <table>
+        <div className="table-scroll">
+          <table>
           <thead><tr><th>Tenant</th><th>Status</th><th>Plan</th><th>Invoices this month</th><th>Renews in</th></tr></thead>
           <tbody>
             {rows.map((r) => (
@@ -949,6 +1044,7 @@ export function ReportsPage() {
             ))}
           </tbody>
         </table>
+          </div>
       )}
     </DashboardCard>
   )
