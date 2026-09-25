@@ -199,7 +199,54 @@ export const ICONS = {
   receipt: 'M4 2h16v20l-3-2-3 2-3-2-3 2-3-2-1 2zM8 7h8M8 11h8M8 15h5',
   clock: 'M12 22a10 10 0 100-20 10 10 0 000 20zM12 6v6l4 2',
   alert: 'M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01',
+  // Row-action icons — used by IconButton below on the invoice/quotation/
+  // receipt tables, so PDF/mark-sent/mark-cancelled/convert read as glyphs
+  // instead of a wall of text buttons.
+  download: 'M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2',
+  send: 'M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z',
+  eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 15a3 3 0 100-6 3 3 0 000 6z',
+  checkCircle: 'M22 11.08V12a10 10 0 11-5.93-9.14M22 4L12 14.01l-3-3',
+  xCircle: 'M18 6L6 18M6 6l12 12',
+  convert: 'M17 1l4 4-4 4M3 11V9a4 4 0 014-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 01-4 4H3',
+  trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z',
 } as const
+
+/** Small round icon-only action button for table rows — PDF, mark-sent,
+ * convert, and so on. `title` doubles as the accessible name (rendered as
+ * a native tooltip) and as a text fallback via aria-label, since the
+ * button carries no visible label. `tone` tints it without a full custom
+ * className per action. */
+export function IconButton({
+  icon, title, onClick, tone = 'neutral', type = 'button', disabled,
+}: {
+  icon: keyof typeof ICONS
+  title: string
+  onClick?: () => void
+  tone?: 'neutral' | 'accent' | 'green' | 'red' | 'amber'
+  type?: 'button' | 'submit'
+  disabled?: boolean
+}) {
+  const toneVars: Record<string, string> = {
+    neutral: 'var(--text-2)',
+    accent: 'var(--accent)',
+    green: 'var(--green)',
+    red: 'var(--red)',
+    amber: 'var(--amber)',
+  }
+  return (
+    <button
+      type={type}
+      className="icon-btn"
+      style={{ color: toneVars[tone] }}
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <Icon path={ICONS[icon]} size={16} />
+    </button>
+  )
+}
 
 export const CHART_COLORS = {
   primary: 'var(--accent)',

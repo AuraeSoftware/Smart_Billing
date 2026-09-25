@@ -8,7 +8,7 @@ import { getCached, isOnline, queueOfflineCreate, syncAll, type DocType } from '
 import { useAuth } from '../lib/auth'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import AppLayout, { type NavItem } from '../components/AppLayout'
-import { DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS } from '../components/DashboardUI'
+import { DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS, IconButton } from '../components/DashboardUI'
 import Settings from './Settings'
 import {
   MyPlanPage, TenantCredentialsPage, CustomersPage, TeamPage, CatalogPage,
@@ -38,7 +38,7 @@ interface LineItem { description: string; quantity: number; unit_price: number; 
 
 interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string; due_date?: string | null; notes?: string | null }
 interface QuotationRow { id: string; number: string; customer_name: string; status: string; grand_total: number; issue_date: string; valid_until?: string | null; notes?: string | null }
-interface ReceiptRow { id: string; number: string; invoice_id: string; amount: number; received_at: string }
+interface ReceiptRow { id: string; number: string; invoice_id: string; amount: number; payment_method?: string | null; payment_reference?: string | null; notes?: string | null; received_at: string }
 
 const emptyItem = (): LineItem => ({ description: '', quantity: 1, unit_price: 0, tax_rate_percent: 0, discount_percent: 0 })
 
@@ -494,9 +494,11 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
                 <td>{inv.issue_date}</td><td>{inv.due_date || <span className="muted">—</span>}</td>
                 <td><StatusChip status={inv.status} /></td>
                 <td>{inv.grand_total}</td><td>{inv.amount_paid}</td>
-                <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button className="btn secondary" onClick={() => downloadPdf(`/invoices/${inv.id}/pdf`, `${inv.number}.pdf`)}>PDF</button>
-                  <InvoiceStatusActions invoice={inv} onChanged={reload} />
+                <td>
+                  <div className="icon-btn-row">
+                    <IconButton icon="download" title="Download PDF" onClick={() => downloadPdf(`/invoices/${inv.id}/pdf`, `${inv.number}.pdf`)} />
+                    <InvoiceStatusActions invoice={inv} onChanged={reload} />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -514,6 +516,15 @@ const INVOICE_TRANSITIONS: Record<string, string[]> = {
   viewed: ['cancelled'],
 }
 
+// Icon + tone per status transition — same meaning as the old "Mark sent" /
+// "Mark viewed" / "Mark cancelled" text buttons, just compact.
+const STATUS_ACTION_ICON: Record<string, { icon: keyof typeof ICONS; tone: 'accent' | 'green' | 'red' }> = {
+  sent: { icon: 'send', tone: 'accent' },
+  viewed: { icon: 'eye', tone: 'accent' },
+  cancelled: { icon: 'xCircle', tone: 'red' },
+  converted: { icon: 'convert', tone: 'green' },
+}
+
 function InvoiceStatusActions({ invoice, onChanged }: { invoice: InvoiceRow; onChanged: () => void }) {
   const options = INVOICE_TRANSITIONS[invoice.status] || []
   async function setStatus(next: string) {
@@ -523,11 +534,10 @@ function InvoiceStatusActions({ invoice, onChanged }: { invoice: InvoiceRow; onC
   if (options.length === 0) return null
   return (
     <>
-      {options.map((opt) => (
-        <button key={opt} className="btn secondary" onClick={() => setStatus(opt)}>
-          Mark {opt}
-        </button>
-      ))}
+      {options.map((opt) => {
+        const cfg = STATUS_ACTION_ICON[opt] || { icon: 'checkCircle' as const, tone: 'accent' as const }
+        return <IconButton key={opt} icon={cfg.icon} tone={cfg.tone} title={`Mark ${opt}`} onClick={() => setStatus(opt)} />
+      })}
     </>
   )
 }
@@ -598,10 +608,12 @@ function QuotationsPanel() {
                 <td>{q.issue_date}</td><td>{q.valid_until || <span className="muted">—</span>}</td>
                 <td><StatusChip status={q.status} /></td>
                 <td>{q.grand_total}</td>
-                <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button className="btn secondary" onClick={() => downloadPdf(`/quotations/${q.id}/pdf`, `${q.number}.pdf`)}>PDF</button>
-                  {q.status !== 'converted' && <button className="btn secondary" onClick={() => onConvert(q.id)}>Convert to invoice</button>}
-                  <QuotationStatusActions quotation={q} onChanged={reload} />
+                <td>
+                  <div className="icon-btn-row">
+                    <IconButton icon="download" title="Download PDF" onClick={() => downloadPdf(`/quotations/${q.id}/pdf`, `${q.number}.pdf`)} />
+                    {q.status !== 'converted' && <IconButton icon="convert" tone="green" title="Convert to invoice" onClick={() => onConvert(q.id)} />}
+                    <QuotationStatusActions quotation={q} onChanged={reload} />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -618,6 +630,13 @@ const QUOTATION_TRANSITIONS: Record<string, string[]> = {
   sent: ['accepted', 'declined', 'expired'],
 }
 
+const QUOTATION_ACTION_ICON: Record<string, { icon: keyof typeof ICONS; tone: 'accent' | 'green' | 'red' | 'amber' }> = {
+  sent: { icon: 'send', tone: 'accent' },
+  accepted: { icon: 'checkCircle', tone: 'green' },
+  declined: { icon: 'xCircle', tone: 'red' },
+  expired: { icon: 'xCircle', tone: 'amber' },
+}
+
 function QuotationStatusActions({ quotation, onChanged }: { quotation: QuotationRow; onChanged: () => void }) {
   const options = QUOTATION_TRANSITIONS[quotation.status] || []
   async function setStatus(next: string) {
@@ -627,11 +646,10 @@ function QuotationStatusActions({ quotation, onChanged }: { quotation: Quotation
   if (options.length === 0) return null
   return (
     <>
-      {options.map((opt) => (
-        <button key={opt} className="btn secondary" onClick={() => setStatus(opt)}>
-          Mark {opt}
-        </button>
-      ))}
+      {options.map((opt) => {
+        const cfg = QUOTATION_ACTION_ICON[opt] || { icon: 'checkCircle' as const, tone: 'accent' as const }
+        return <IconButton key={opt} icon={cfg.icon} tone={cfg.tone} title={`Mark ${opt}`} onClick={() => setStatus(opt)} />
+      })}
     </>
   )
 }
@@ -644,11 +662,16 @@ function ReceiptsPanel() {
   const [amount, setAmount] = useState(0)
   const [receivedAt, setReceivedAt] = useState(new Date().toISOString().slice(0, 10))
   const [method, setMethod] = useState('cash')
+  const [reference, setReference] = useState('')
+  const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   async function onCreate() {
     setError(null)
-    const payload = { invoice_id: invoiceId, amount, received_at: receivedAt, payment_method: method, is_partial: false }
+    const payload = {
+      invoice_id: invoiceId, amount, received_at: receivedAt, payment_method: method,
+      payment_reference: reference || undefined, notes: notes || undefined, is_partial: false,
+    }
     try {
       if (isOnline()) {
         await apiFetch('/receipts', { method: 'POST', body: JSON.stringify(payload) })
@@ -681,14 +704,24 @@ function ReceiptsPanel() {
             <div className="field" style={{ flex: 1 }}><label>Amount received</label><input type="number" step="0.01" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></div>
             <div className="field" style={{ flex: 1 }}><label>Date received</label><input type="date" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} /></div>
           </div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 160 }}>
+              <label>Payment method</label>
+              <select value={method} onChange={(e) => setMethod(e.target.value)}>
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank transfer</option>
+                <option value="razorpay">Razorpay</option>
+                <option value="billplz">Billplz</option>
+              </select>
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 160 }}>
+              <label>Reference (UTR / txn ID)</label>
+              <input placeholder="Optional" value={reference} onChange={(e) => setReference(e.target.value)} />
+            </div>
+          </div>
           <div className="field">
-            <label>Payment method</label>
-            <select value={method} onChange={(e) => setMethod(e.target.value)}>
-              <option value="cash">Cash</option>
-              <option value="bank_transfer">Bank transfer</option>
-              <option value="razorpay">Razorpay</option>
-              <option value="billplz">Billplz</option>
-            </select>
+            <label>Purpose (what this payment is for)</label>
+            <input placeholder="e.g. Advance against milestone 2" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           {error && <p className="error-text">{error}</p>}
           <button className="btn amber" style={{ marginTop: 10 }} onClick={onCreate}>Save receipt</button>
@@ -697,12 +730,21 @@ function ReceiptsPanel() {
       {loading ? <p className="muted">Loading…</p> : (
         <div className="table-scroll">
           <table>
-          <thead><tr><th>Number</th><th>Amount</th><th>Received</th><th></th></tr></thead>
+          <thead><tr><th>Number</th><th>Purpose</th><th>Amount</th><th>Method</th><th>Reference</th><th>Received</th><th></th></tr></thead>
           <tbody>
             {items.map((r) => (
               <tr key={r.id}>
-                <td>{r.number}</td><td>{r.amount}</td><td>{r.received_at}</td>
-                <td><button className="btn secondary" onClick={() => downloadPdf(`/receipts/${r.id}/pdf`, `${r.number}.pdf`)}>PDF</button></td>
+                <td>{r.number}</td>
+                <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{r.notes || <span className="muted">—</span>}</td>
+                <td>{r.amount}</td>
+                <td>{r.payment_method || <span className="muted">—</span>}</td>
+                <td>{r.payment_reference || <span className="muted">—</span>}</td>
+                <td>{r.received_at}</td>
+                <td>
+                  <div className="icon-btn-row">
+                    <IconButton icon="download" title="Download PDF" onClick={() => downloadPdf(`/receipts/${r.id}/pdf`, `${r.number}.pdf`)} />
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

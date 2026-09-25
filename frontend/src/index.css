@@ -275,6 +275,22 @@ h2 { font-size: 17px; }
 .btn.amber { background: var(--highlight); color: #fff; }
 .btn.amber:hover { filter: brightness(0.94); }
 
+/* Round icon-only action button — table rows (PDF, mark sent, convert,
+   cancel…) use this instead of a row of labeled buttons, which crowded
+   badly once a row had 3-4 actions. Same 44px+ touch target as a labeled
+   button so it stays comfortable on a phone despite being visually small. */
+.icon-btn {
+  width: 34px; height: 34px; min-width: 34px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 9px; border: 1px solid var(--border);
+  background: var(--bg-2); cursor: pointer; padding: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.icon-btn:hover { background: var(--bg-3); border-color: var(--border-2); transform: translateY(-1px); }
+.icon-btn:active { transform: translateY(0); }
+.icon-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.icon-btn-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
 .btn.ghost {
   background: none;
   border: none;

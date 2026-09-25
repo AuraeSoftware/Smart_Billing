@@ -157,6 +157,7 @@ class Receipt(Base):
     is_partial: Mapped[bool] = mapped_column(default=False)
     payment_method: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # cash, bank_transfer, razorpay, billplz...
     payment_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     received_at: Mapped[date] = mapped_column(Date, nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))

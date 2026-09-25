@@ -94,6 +94,7 @@ class ReceiptCreate(BaseModel):
     is_partial: bool = False
     payment_method: Optional[str] = None
     payment_reference: Optional[str] = None
+    notes: Optional[str] = None
     received_at: date
 
 
@@ -104,6 +105,8 @@ class ReceiptOut(BaseModel):
     amount: float
     is_partial: bool
     payment_method: Optional[str]
+    payment_reference: Optional[str] = None
+    notes: Optional[str] = None
     received_at: date
     created_at: datetime
 

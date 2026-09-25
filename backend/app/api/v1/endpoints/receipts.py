@@ -32,7 +32,8 @@ def create_receipt(
     receipt = Receipt(
         tenant_id=tenant_id, invoice_id=invoice.id, number=number, amount=payload.amount,
         is_partial=payload.is_partial, payment_method=payload.payment_method,
-        payment_reference=payload.payment_reference, received_at=payload.received_at,
+        payment_reference=payload.payment_reference, notes=payload.notes,
+        received_at=payload.received_at,
         created_by=user.id,
     )
     invoice.amount_paid = float(invoice.amount_paid) + payload.amount
@@ -71,7 +72,12 @@ def receipt_pdf(
     pdf_bytes = render_document_pdf(
         doc_type="RECEIPT", number=receipt.number, tenant_name=tenant.name, branding=branding,
         customer_name=invoice.customer_name, issue_date=receipt.received_at.isoformat(),
-        meta_lines=[f"Against invoice: {invoice.number}", f"Payment method: {receipt.payment_method or '—'}"],
+        meta_lines=[
+            f"Against invoice: {invoice.number}",
+            f"Payment method: {receipt.payment_method or '—'}",
+            *([f"Reference: {receipt.payment_reference}"] if receipt.payment_reference else []),
+            *([f"Purpose: {receipt.notes}"] if receipt.notes else []),
+        ],
         line_items=[{"description": f"Payment received ({'partial' if receipt.is_partial else 'full'})", "quantity": 1, "unit_price": f"{receipt.amount:,.2f}", "line_total": f"{receipt.amount:,.2f}"}],
         totals=[("Amount received", f"{receipt.amount:,.2f}")],
     )
