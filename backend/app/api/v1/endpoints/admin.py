@@ -5,6 +5,7 @@ SUPREME_ADMIN role; a Super Admin has no access to any of it, including the
 device log, by design.
 """
 import uuid
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -43,7 +44,7 @@ class DeviceEventOut(BaseModel):
     device_label: str | None
     detail: str | None
     acknowledged: bool
-    created_at: str
+    created_at: datetime
 
     class Config:
         from_attributes = True

@@ -92,6 +92,7 @@ export default function SupremeAdminDashboard() {
   const [stats, setStats] = useState<PlatformAnalytics | null>(null)
   const [tenantRevenue, setTenantRevenue] = useState<TenantRevenueRow[]>([])
   const [revenueTrend, setRevenueTrend] = useState<RevenueTrendPoint[]>([])
+  const [eventsError, setEventsError] = useState<string | null>(null)
 
   useEffect(() => {
     apiFetch<PlatformAnalytics>('/analytics/platform').then(setStats).catch(() => {})
@@ -103,7 +104,15 @@ export default function SupremeAdminDashboard() {
     setTenants(await apiFetch<TenantRow[]>('/admin/tenants'))
   }
   async function loadEvents() {
-    setEvents(await apiFetch<DeviceEventRow[]>(`/admin/device-events?unacknowledged_only=${unackOnly}`))
+    try {
+      setEventsError(null)
+      setEvents(await apiFetch<DeviceEventRow[]>(`/admin/device-events?unacknowledged_only=${unackOnly}`))
+    } catch (err) {
+      // Surface the failure instead of silently leaving the table looking
+      // empty — an empty "No events to show" row and a broken feed should
+      // never look identical to the Supreme Admin.
+      setEventsError(err instanceof Error ? err.message : 'Could not load device alerts.')
+    }
   }
 
   useEffect(() => { loadTenants(); loadEvents() }, [unackOnly])
@@ -158,6 +167,7 @@ export default function SupremeAdminDashboard() {
             Visible only here — Super Admins cannot see this log (SOW 3.3). A device change on any
             Super Admin credential appears below; suspend a credential directly if it looks wrong.
           </p>
+          {eventsError && <p className="error-text">{eventsError}</p>}
           <div className="table-scroll">
           <table>
             <thead><tr><th>When</th><th>Event</th><th>Device</th><th>Detail</th><th></th></tr></thead>
