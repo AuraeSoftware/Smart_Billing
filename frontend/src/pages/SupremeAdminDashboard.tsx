@@ -20,15 +20,15 @@ import {
 // trailing Smart Billing-specific addition (SOW 3.3 device-binding log has
 // no Smart Garage equivalent).
 const NAV_ITEMS: NavItem[] = [
-  { key: 'overview', label: 'Dashboard' },
-  { key: 'payment-settings', label: 'Payment Settings' },
-  { key: 'reports', label: 'Reports' },
-  { key: 'super-admins', label: 'Super Admins' },
-  { key: 'subscription-plans', label: 'Subscription Plans' },
-  { key: 'currency-config', label: 'Currency Config' },
-  { key: 'subscription-history', label: 'Subscription History' },
-  { key: 'credentials', label: 'Credentials' },
-  { key: 'devices', label: 'Device Alerts' },
+  { key: 'overview', label: 'Dashboard', icon: 'grid' },
+  { key: 'payment-settings', label: 'Payment Settings', icon: 'card' },
+  { key: 'reports', label: 'Reports', icon: 'barChart' },
+  { key: 'super-admins', label: 'Super Admins', icon: 'users' },
+  { key: 'subscription-plans', label: 'Subscription Plans', icon: 'star' },
+  { key: 'currency-config', label: 'Currency Config', icon: 'shield' },
+  { key: 'subscription-history', label: 'Subscription History', icon: 'clock' },
+  { key: 'credentials', label: 'Credentials', icon: 'key' },
+  { key: 'devices', label: 'Device Alerts', icon: 'bell' },
 ]
 
 interface TenantRow {

@@ -20,18 +20,18 @@ import {
 // Settings is deliberately excluded: tenants settle their own subscription
 // with Aurae directly, and there's no per-customer checkout to gate here.
 const NAV_ITEMS: NavItem[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'invoices', label: 'Invoices' },
-  { key: 'quotations', label: 'Quotations' },
-  { key: 'receipts', label: 'Receipts' },
-  { key: 'customers', label: 'Customers' },
-  { key: 'team', label: 'Team' },
-  { key: 'catalog', label: 'Catalog' },
-  { key: 'reports', label: 'Reports' },
-  { key: 'my-plan', label: 'My Plan' },
-  { key: 'gst-manager', label: 'GST Manager' },
-  { key: 'credentials', label: 'Credentials' },
-  { key: 'settings', label: 'Settings' },
+  { key: 'overview', label: 'Overview', icon: 'grid' },
+  { key: 'invoices', label: 'Invoices', icon: 'invoice' },
+  { key: 'quotations', label: 'Quotations', icon: 'quotation' },
+  { key: 'receipts', label: 'Receipts', icon: 'receipt' },
+  { key: 'customers', label: 'Customers', icon: 'users' },
+  { key: 'team', label: 'Team', icon: 'users' },
+  { key: 'catalog', label: 'Catalog', icon: 'package' },
+  { key: 'reports', label: 'Reports', icon: 'barChart' },
+  { key: 'my-plan', label: 'My Plan', icon: 'star' },
+  { key: 'gst-manager', label: 'GST Manager', icon: 'percent' },
+  { key: 'credentials', label: 'Credentials', icon: 'key' },
+  { key: 'settings', label: 'Settings', icon: 'settings' },
 ]
 
 interface LineItem { description: string; quantity: number; unit_price: number; tax_rate_percent: number; discount_percent: number }

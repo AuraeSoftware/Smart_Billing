@@ -162,17 +162,7 @@ export default function SubscribeSignup() {
   }
 
   return (
-    <AuthSplitShell
-      wide
-      headline={<>Get billing <span style={{ color: 'var(--accent)' }}>up and running</span> today.</>}
-      tagline="Set up your workspace, pick a plan, and start sending branded invoices in minutes."
-      bullets={[
-        'Branded invoices, quotations & receipts',
-        'A plan that fits your business, in your currency',
-        'Mandatory branding keeps every document on-brand',
-        'Live usage tracking from day one',
-      ]}
-    >
+    <AuthSplitShell wide>
       <h1 style={{ textAlign: 'center' }}>Register Super Admin</h1>
       <p className="muted" style={{ textAlign: 'center', marginTop: -6 }}>Step 1 — business details. Paid plans continue to payment next; the trial plan skips straight to branding.</p>
       <form onSubmit={onSubmit}>

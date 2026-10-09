@@ -32,16 +32,7 @@ export default function Login() {
   }
 
   return (
-    <AuthSplitShell
-      headline={<>Bill your customers <span style={{ color: 'var(--accent)' }}>smarter, faster.</span></>}
-      tagline="Invoices, quotations, and receipts — branded, tracked, and under control, all in one place."
-      bullets={[
-        'Branded invoices, quotations & receipts',
-        'Multi-currency billing, built in',
-        'Usage and plan tracking at a glance',
-        'Your own workspace, your own branding',
-      ]}
-    >
+    <AuthSplitShell>
       <h1 style={{ textAlign: 'center' }}>Welcome back</h1>
       <p className="muted" style={{ textAlign: 'center', marginTop: -6 }}>Sign in to your workspace.</p>
       <form onSubmit={onSubmit}>
