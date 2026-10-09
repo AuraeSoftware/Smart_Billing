@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { apiFetch, ApiError } from '../../lib/api'
-import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, DetailRow, Icon, ICONS } from '../../components/DashboardUI'
+import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, DetailRow, Icon, ICONS, readableAccent } from '../../components/DashboardUI'
 
 /**
  * Real backend-backed pages for the rest of Smart Garage 360's Supreme
@@ -324,11 +324,11 @@ export function SuperAdminsPage() {
               return (
                 <div key={p.id} style={{ background: isCurrent ? `${p.color}10` : 'var(--bg-3)', border: `2px solid ${isCurrent ? p.color : 'var(--border)'}`, borderRadius: 12, padding: 14, marginBottom: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                    <div style={{ fontWeight: 800, fontSize: 14, color: p.color }}>{p.name}</div>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: readableAccent(p.color) }}>{p.name}</div>
                     <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--text)' }}>{p.currency} {p.price.toFixed(0)}<span style={{ fontSize: 11, color: 'var(--text-3)' }}>/{p.billing_cycle}</span></div>
                   </div>
                   {isCurrent ? (
-                    <div style={{ fontSize: 12, fontWeight: 700, color: p.color, textAlign: 'center', padding: 6, background: `${p.color}15`, borderRadius: 7 }}>Current plan</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: readableAccent(p.color), textAlign: 'center', padding: 6, background: `${p.color}15`, borderRadius: 7 }}>Current plan</div>
                   ) : (
                     <button className="btn secondary" style={{ width: '100%' }} onClick={() => assignPlan(p.id)}>Assign {p.name}</button>
                   )}
@@ -410,13 +410,26 @@ export function SubscriptionPlansPage() {
     load()
   }
 
+  // A compact label+checkbox row shared by the feature list below, so the
+  // whole section reads as a tight 2-column grid instead of one long column.
+  const featureBox = (label: string, key: keyof typeof form, comingSoon?: boolean) => (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer' }}>
+      <input type="checkbox" checked={form[key] as boolean} onChange={(e) => setForm({ ...form, [key]: e.target.checked })} style={{ width: 'auto', margin: 0 }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      {comingSoon && <span className="status-chip status-chip-amber" style={{ fontSize: 9, padding: '1px 5px', flexShrink: 0 }}>Soon</span>}
+    </label>
+  )
+
   const renderForm = () => (
-    <div style={{ display: 'grid', gap: 14 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+    <div style={{ display: 'grid', gap: 12 }}>
+      {/* Row 1 — identity */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
         <label>Plan name<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Pro" /></label>
         <label>Currency<input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} maxLength={10} /></label>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+
+      {/* Row 2 — pricing & billing */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <label>Price<input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} /></label>
         <label>Billing cycle
           <select value={form.billing_cycle} onChange={(e) => setForm({ ...form, billing_cycle: e.target.value })}>
@@ -426,8 +439,10 @@ export function SubscriptionPlansPage() {
         </label>
         <label>Max users<input type="number" value={form.max_users} onChange={(e) => setForm({ ...form, max_users: Number(e.target.value) })} /></label>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
-        <label>Max invoices / month
+
+      {/* Row 3 — quotas */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <label>Invoices / month
           <input type="number" placeholder="Blank = unlimited" value={form.max_invoices_per_month ?? ''}
             onChange={(e) => setForm({ ...form, max_invoices_per_month: e.target.value === '' ? null : Number(e.target.value) })} />
         </label>
@@ -437,46 +452,37 @@ export function SubscriptionPlansPage() {
         </label>
         <label>Max branches<input type="number" value={form.max_branches} onChange={(e) => setForm({ ...form, max_branches: Number(e.target.value) })} /></label>
       </div>
+
+      {/* Row 4 — trial toggle, inline with its day count so it doesn't push
+          the form taller when checked */}
+      <div style={{ display: 'grid', gridTemplateColumns: form.is_trial ? '2fr 1fr' : '1fr', gap: 12, alignItems: 'end' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', flexDirection: 'row', paddingBottom: 8 }}>
+          <input type="checkbox" checked={form.is_trial} onChange={(e) => setForm({ ...form, is_trial: e.target.checked })} style={{ width: 'auto' }} />
+          Free trial — skips payment, 1 use per company
+        </label>
+        {form.is_trial && (
+          <label>Trial days<input type="number" value={form.trial_days} onChange={(e) => setForm({ ...form, trial_days: Number(e.target.value) })} /></label>
+        )}
+      </div>
+
       <label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} /></label>
 
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', flexDirection: 'row' }}>
-        <input type="checkbox" checked={form.is_trial} onChange={(e) => setForm({ ...form, is_trial: e.target.checked })} style={{ width: 'auto' }} />
-        Free trial plan — skips payment at signup, limited to one use per company
-      </label>
-      {form.is_trial && (
-        <label>Trial length (days)<input type="number" value={form.trial_days} onChange={(e) => setForm({ ...form, trial_days: Number(e.target.value) })} /></label>
-      )}
-
+      {/* Features — 2-column grid instead of one long list */}
       <div>
-        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Included features</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.has_priority_support} onChange={(e) => setForm({ ...form, has_priority_support: e.target.checked })} /> Priority support
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.has_api_access} onChange={(e) => setForm({ ...form, has_api_access: e.target.checked })} /> API access
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.has_advanced_reports} onChange={(e) => setForm({ ...form, has_advanced_reports: e.target.checked })} /> Advanced reports
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.has_multi_currency} onChange={(e) => setForm({ ...form, has_multi_currency: e.target.checked })} /> Multi-currency invoicing
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.has_employee_management} onChange={(e) => setForm({ ...form, has_employee_management: e.target.checked })} /> Employee management (Team page)
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.has_expense_tracking} onChange={(e) => setForm({ ...form, has_expense_tracking: e.target.checked })} /> Expense tracking
-            <span className="status-chip status-chip-amber" style={{ fontSize: 10 }}>Coming soon — not built yet</span>
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form.has_multi_branch} onChange={(e) => setForm({ ...form, has_multi_branch: e.target.checked })} /> Multi-branch
-            <span className="status-chip status-chip-amber" style={{ fontSize: 10 }}>Coming soon — not built yet</span>
-          </label>
+        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Included features</label>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
+          {featureBox('Priority support', 'has_priority_support')}
+          {featureBox('API access', 'has_api_access')}
+          {featureBox('Advanced reports', 'has_advanced_reports')}
+          {featureBox('Multi-currency invoicing', 'has_multi_currency')}
+          {featureBox('Employee management', 'has_employee_management')}
+          {featureBox('Expense tracking', 'has_expense_tracking', true)}
+          {featureBox('Multi-branch', 'has_multi_branch', true)}
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      {/* Tiers + theme colour share a row — both are short selectors */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, alignItems: 'end' }}>
         <label>Inventory
           <select value={form.inventory_tier} onChange={(e) => setForm({ ...form, inventory_tier: e.target.value as 'basic' | 'included' })}>
             <option value="basic">Basic</option>
@@ -490,15 +496,14 @@ export function SubscriptionPlansPage() {
             <option value="included">Included</option>
           </select>
         </label>
-      </div>
-
-      <div>
-        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase' }}>Theme colour</label>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {PLAN_COLORS.map((c) => (
-            <div key={c} onClick={() => setForm({ ...form, color: c })}
-              style={{ width: 28, height: 28, borderRadius: '50%', background: c, cursor: 'pointer', border: form.color === c ? '3px solid var(--text)' : '2px solid transparent' }} />
-          ))}
+        <div>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase' }}>Theme colour</label>
+          <div style={{ display: 'flex', gap: 6, paddingTop: 2 }}>
+            {PLAN_COLORS.map((c) => (
+              <div key={c} onClick={() => setForm({ ...form, color: c })}
+                style={{ width: 24, height: 24, borderRadius: '50%', background: c, cursor: 'pointer', border: form.color === c ? '3px solid var(--text)' : '2px solid transparent' }} />
+            ))}
+          </div>
         </div>
       </div>
       {error && <p style={{ color: 'var(--red)' }}>{error}</p>}
@@ -525,7 +530,7 @@ export function SubscriptionPlansPage() {
                 <div>
                   <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: 'var(--text)' }}>{p.name}</h3>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                    <span style={{ fontSize: 20, fontWeight: 900, color: p.color }}>{p.currency} {p.price.toFixed(0)}</span>
+                    <span style={{ fontSize: 20, fontWeight: 900, color: readableAccent(p.color) }}>{p.currency} {p.price.toFixed(0)}</span>
                     <span style={{ fontSize: 13, color: 'var(--text-3)' }}>/{p.billing_cycle}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
@@ -541,17 +546,17 @@ export function SubscriptionPlansPage() {
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', marginBottom: 8 }}>Included</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: 'var(--text-2)' }}>
-                  <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> {p.max_users} users · {p.max_invoices_per_month ?? 'Unlimited'} invoices/mo</div>
-                  <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> {p.max_branches} branch{p.max_branches === 1 ? '' : 'es'} · {p.max_products ?? 'Unlimited'} products</div>
-                  {p.is_trial && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> {p.trial_days}-day free trial</div>}
-                  <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> {p.tenant_count} tenant{p.tenant_count === 1 ? '' : 's'} on this plan</div>
-                  {p.has_priority_support && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Priority support</div>}
-                  {p.has_api_access && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> API access</div>}
-                  {p.has_advanced_reports && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Advanced reports</div>}
-                  {p.has_multi_currency && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Multi-currency invoicing</div>}
-                  {p.has_employee_management && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Employee management</div>}
-                  {p.inventory_tier === 'included' && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Full inventory</div>}
-                  {p.role_permissions_tier !== 'none' && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Role permissions ({p.role_permissions_tier})</div>}
+                  <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> {p.max_users} users · {p.max_invoices_per_month ?? 'Unlimited'} invoices/mo</div>
+                  <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> {p.max_branches} branch{p.max_branches === 1 ? '' : 'es'} · {p.max_products ?? 'Unlimited'} products</div>
+                  {p.is_trial && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> {p.trial_days}-day free trial</div>}
+                  <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> {p.tenant_count} tenant{p.tenant_count === 1 ? '' : 's'} on this plan</div>
+                  {p.has_priority_support && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Priority support</div>}
+                  {p.has_api_access && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> API access</div>}
+                  {p.has_advanced_reports && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Advanced reports</div>}
+                  {p.has_multi_currency && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Multi-currency invoicing</div>}
+                  {p.has_employee_management && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Employee management</div>}
+                  {p.inventory_tier === 'included' && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Full inventory</div>}
+                  {p.role_permissions_tier !== 'none' && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Role permissions ({p.role_permissions_tier})</div>}
                   {p.has_expense_tracking && <div style={{ color: 'var(--text-3)' }}>○ Expense tracking <span style={{ fontSize: 10 }}>(coming soon)</span></div>}
                   {p.has_multi_branch && <div style={{ color: 'var(--text-3)' }}>○ Multi-branch <span style={{ fontSize: 10 }}>(coming soon)</span></div>}
                 </div>
@@ -561,14 +566,14 @@ export function SubscriptionPlansPage() {
         </div>
       )}
 
-      <Modal title="Add Subscription Plan" open={showAdd} onClose={() => setShowAdd(false)} maxWidth={520}>
+      <Modal title="Add Subscription Plan" open={showAdd} onClose={() => setShowAdd(false)} maxWidth={660}>
         {renderForm()}
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button className="btn" style={{ flex: 1 }} onClick={submitAdd}>Create plan</button>
           <button className="btn ghost" onClick={() => setShowAdd(false)}>Cancel</button>
         </div>
       </Modal>
-      <Modal title="Edit Subscription Plan" open={!!editing} onClose={() => setEditing(null)} maxWidth={520}>
+      <Modal title="Edit Subscription Plan" open={!!editing} onClose={() => setEditing(null)} maxWidth={660}>
         {renderForm()}
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button className="btn" style={{ flex: 1 }} onClick={submitEdit}>Save changes</button>

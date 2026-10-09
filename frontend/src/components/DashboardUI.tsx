@@ -8,6 +8,27 @@ import type { ReactNode } from 'react'
  * index.css so light/dark both work without any extra work.
  */
 
+/** A plan's theme color (picked by the Supreme Admin, or set by a seed
+ * script) is used as-is for borders and translucent tints, which always
+ * stay legible. But a few places render it as solid TEXT on a dark card —
+ * a near-black color there (e.g. an Enterprise tier's #111827) becomes
+ * invisible. This lightens any color whose relative luminance is too low
+ * to read as text on a dark background, leaving already-legible colors
+ * untouched. Use for text/icon color only, never for borders or fills. */
+export function readableAccent(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex)
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  // Relative luminance (simplified sRGB — no gamma curve needed at this threshold).
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  if (luminance >= 0.35) return hex // already readable on a dark background
+  // Blend 60% toward white to lift it into a legible range while keeping its hue.
+  const blend = (c: number) => Math.round(c + (255 - c) * 0.6)
+  const toHex = (c: number) => c.toString(16).padStart(2, '0')
+  return `#${toHex(blend(r))}${toHex(blend(g))}${toHex(blend(b))}`
+}
+
 export function DashboardCard({
   children,
   title,
@@ -129,13 +150,17 @@ export function Modal({
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div className="modal-panel" style={{
-        background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 16, padding: 24,
-        width: '100%', maxWidth, boxShadow: 'var(--shadow-lg)', maxHeight: '90vh', overflowY: 'auto',
-        position: 'relative',
+        background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 16,
+        width: '100%', maxWidth, boxShadow: 'var(--shadow-lg)', maxHeight: '90vh',
+        position: 'relative', display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
-        {/* Close button always renders, title or not — every popup gets a
-            visible, click-away-independent way out. */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: title ? 20 : 8 }}>
+        {/* Header (with the close button) is pinned outside the scrolling
+            area, so it's always visible — even on a tall form — instead of
+            scrolling away with the content underneath it. */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: title ? '24px 24px 16px' : '16px 24px 0', flexShrink: 0,
+        }}>
           {title ? <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{title}</h3> : <span />}
           <button
             onClick={onClose}
@@ -149,7 +174,9 @@ export function Modal({
             ✕
           </button>
         </div>
-        {children}
+        <div style={{ padding: '0 24px 24px', overflowY: 'auto' }}>
+          {children}
+        </div>
       </div>
     </div>
   )

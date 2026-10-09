@@ -33,7 +33,10 @@ COLORS = {
     "Starter": "#6b7280",
     "Business": "#da1a31",
     "Pro": "#2563eb",
-    "Enterprise": "#111827",
+    # Was #111827 (near-black) — unreadable as text on the app's dark theme.
+    # A premium gold/bronze accent reads well on dark and light alike, and
+    # fits an Enterprise tier better than the original near-black did.
+    "Enterprise": "#b8860b",
 }
 
 DESCRIPTIONS = {

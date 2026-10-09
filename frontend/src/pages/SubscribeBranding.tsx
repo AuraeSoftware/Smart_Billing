@@ -43,6 +43,13 @@ export default function SubscribeBranding() {
   return (
     <div className="auth-shell">
       <div className="auth-card auth-wide card">
+        <button
+          type="button"
+          onClick={() => navigate('/subscribe')}
+          style={{ background: 'none', border: 'none', padding: 0, marginBottom: 14, fontSize: 13, fontWeight: 700, color: 'var(--text-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          ← Back to plan selection
+        </button>
         <h1>Add your branding</h1>
         <p className="muted">Final step — required before your workspace activates. This appears on every invoice, quotation, and receipt you send.</p>
         <form onSubmit={onSubmit}>

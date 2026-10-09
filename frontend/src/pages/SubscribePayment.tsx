@@ -93,6 +93,13 @@ export default function SubscribePayment() {
   return (
     <div className="auth-shell">
       <div className="auth-card card">
+        <button
+          type="button"
+          onClick={() => navigate('/subscribe')}
+          style={{ background: 'none', border: 'none', padding: 0, marginBottom: 14, fontSize: 13, fontWeight: 700, color: 'var(--text-3)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          ← Back to plan selection
+        </button>
         <h1>Complete your payment</h1>
         <p className="muted">
           {planName ? `${planName} — ${amountLabel}` : 'Step 2 of 3 — your plan requires payment before your workspace can be activated. Branding comes next.'}
@@ -107,6 +114,9 @@ export default function SubscribePayment() {
         )}
         <p className="muted" style={{ marginTop: 16, fontSize: 12 }}>
           Payments are processed securely by Razorpay. Your card and bank details never touch Smart Billing's servers.
+        </p>
+        <p className="muted" style={{ marginTop: 8, fontSize: 11 }}>
+          Going back starts a fresh signup — if you reuse the same workspace name or email, you'll need to change the slug slightly.
         </p>
       </div>
     </div>
