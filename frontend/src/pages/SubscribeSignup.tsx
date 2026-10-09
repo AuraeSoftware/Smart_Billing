@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { apiFetch, ApiError } from '../lib/api'
 import { Modal, readableAccent } from '../components/DashboardUI'
 import AuthSplitShell from '../components/AuthSplitShell'
@@ -173,6 +173,12 @@ export default function SubscribeSignup() {
         'Live usage tracking from day one',
       ]}
     >
+      <Link
+        to="/login"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: 'var(--text-3)', textDecoration: 'none', marginBottom: 14 }}
+      >
+        ← Back to login
+      </Link>
       <h1 style={{ textAlign: 'center' }}>Register Super Admin</h1>
       <p className="muted" style={{ textAlign: 'center', marginTop: -6 }}>Step 1 — business details. Paid plans continue to payment next; the trial plan skips straight to branding.</p>
       <form onSubmit={onSubmit}>

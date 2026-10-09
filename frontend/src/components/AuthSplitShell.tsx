@@ -24,27 +24,32 @@ export default function AuthSplitShell({
   return (
     <div className="auth-split">
       <div className="auth-split-left">
-        {/* This panel's background is always dark (brand gradient), regardless
-            of the site's light/dark theme, so the logo is pinned to the dark
-            variant rather than following the theme. */}
-        <div className="auth-split-brand"><Brand size={64} variant="stacked" theme="dark" /></div>
-        <div className="auth-split-pitch">
-          <h2>{headline}</h2>
-          <p>{tagline}</p>
-          <ul>
-            {bullets.map((b) => (
-              <li key={b}>
-                <span className="auth-split-check">✓</span> {b}
-              </li>
-            ))}
-          </ul>
+        {/* Logo + pitch copy are grouped and centered together as one block
+            (auth-split-main), with the footer pinned to the bottom — see the
+            CSS for why that's not just justify-content: space-between. */}
+        <div className="auth-split-main">
+          {/* This panel's background is always dark (brand gradient),
+              regardless of the site's light/dark theme, so the logo is
+              pinned to the dark variant rather than following the theme. */}
+          <div className="auth-split-brand"><Brand size={112} variant="stacked" theme="dark" /></div>
+          <div className="auth-split-pitch">
+            <h2>{headline}</h2>
+            <p>{tagline}</p>
+            <ul>
+              {bullets.map((b) => (
+                <li key={b}>
+                  <span className="auth-split-check">✓</span> {b}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
         <div className="auth-split-footer">Built by OS2 Studio</div>
       </div>
       <div className="auth-split-right">
         <div className="auth-split-theme"><ThemeToggle /></div>
         <div className={`auth-split-card card${wide ? ' auth-split-card-wide' : ''}`}>
-          <div className="auth-split-card-brand"><Brand size={52} variant="stacked" /></div>
+          <div className="auth-split-card-brand"><Brand size={86} variant="stacked" /></div>
           {children}
         </div>
       </div>

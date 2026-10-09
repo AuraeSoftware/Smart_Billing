@@ -553,11 +553,18 @@ tbody tr:hover { background: var(--card-hover); }
   padding: 44px 48px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   position: relative;
   overflow: hidden;
 }
-.auth-split-brand { display: flex; justify-content: center; margin-bottom: 36px; }
+/* The logo and the headline/bullets belong together as one visual unit —
+   centered as a group in the space above the footer, rather than each
+   being spaced apart by justify-content: space-between (which spreads
+   three items — brand, pitch, footer — evenly and leaves a large,
+   unrelated gap between the logo and the headline). Equal auto margins
+   above and below this block center it in the space the footer doesn't
+   use; the footer (no auto margins) stays pinned to the bottom. */
+.auth-split-main { margin-top: auto; margin-bottom: auto; }
+.auth-split-brand { display: flex; justify-content: center; margin-bottom: 22px; }
 .auth-split-pitch { max-width: 440px; }
 .auth-split-pitch h2 {
   font-size: clamp(26px, 3vw, 38px);

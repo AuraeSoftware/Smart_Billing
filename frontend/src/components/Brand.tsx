@@ -7,8 +7,16 @@
  * `.logo-light`/`.logo-dark` theme utilities — tied to
  * `html[data-theme="dark"]` — show only the one that matches the current
  * theme, so it switches instantly with the rest of the UI.
+ *
+ * These crops are icon + wordmark only — the tagline ("Ignite every
+ * transaction") lives in the original artwork as a thin strip under a
+ * divider line, and at any UI size that reads cleanly (a compact header,
+ * even a fairly large hero), that strip renders as an illegible blur
+ * long before the icon or wordmark do. Dropping it from the raster is
+ * what actually fixes "the logo isn't clear" — no amount of upscaling
+ * fixes text that's a few pixels tall at the sizes this renders at.
  */
-const ASPECT = { wide: 1694 / 678, stacked: 1342 / 1664 }
+const ASPECT = { wide: 1678 / 589, stacked: 1326 / 1472 }
 
 export default function Brand({
   size = 40,
