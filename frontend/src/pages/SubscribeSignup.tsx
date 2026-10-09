@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch, ApiError } from '../lib/api'
 import { Modal, readableAccent } from '../components/DashboardUI'
 import AuthSplitShell from '../components/AuthSplitShell'
+import PasswordField from '../components/PasswordField'
 
 interface PublicPlan {
   id: string
@@ -358,10 +359,10 @@ export default function SubscribeSignup() {
             <label>Email</label>
             <input type="email" required value={form.super_admin_email} onChange={(e) => update('super_admin_email', e.target.value)} />
           </div>
-          <div className="field">
-            <label>Password</label>
-            <input type="password" required minLength={8} value={form.super_admin_password} onChange={(e) => update('super_admin_password', e.target.value)} />
-          </div>
+          <PasswordField
+            label="Password" value={form.super_admin_password} onChange={(v) => update('super_admin_password', v)}
+            required minLength={8} autoComplete="new-password"
+          />
           {error && <p className="error-text">{error}</p>}
           <button className="btn" type="submit" disabled={loading || plans.length === 0} style={{ width: '100%' }}>
             {loading ? 'Creating…' : 'Continue to branding'}

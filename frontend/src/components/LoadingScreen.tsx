@@ -38,7 +38,7 @@ export default function LoadingScreen({ onDone }: { onDone: () => void }) {
         opacity: fading ? 0 : 1, transition: 'opacity 260ms ease',
       }}
     >
-      <Brand size={48} stacked textColor="#ffffff" />
+      <Brand size={64} variant="stacked" />
       <div style={{ width: 220 }}>
         <div style={{ height: 4, borderRadius: 4, background: 'rgba(255,255,255,0.14)', overflow: 'hidden' }}>
           <div

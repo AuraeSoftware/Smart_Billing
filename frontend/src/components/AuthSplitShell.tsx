@@ -27,7 +27,7 @@ export default function AuthSplitShell({
   return (
     <div className="auth-split">
       <div className="auth-split-left">
-        <Brand size={34} textColor="#ffffff" />
+        <Brand size={30} variant="wide" />
         <div className="auth-split-pitch">
           <h2>{headline}</h2>
           <p>{tagline}</p>
@@ -44,7 +44,7 @@ export default function AuthSplitShell({
       <div className="auth-split-right">
         <div className="auth-split-theme"><ThemeToggle /></div>
         <div className={`auth-split-card card${wide ? ' auth-split-card-wide' : ''}`}>
-          <div className="auth-split-card-brand"><Brand size={40} stacked /></div>
+          <div className="auth-split-card-brand"><Brand size={52} variant="stacked" /></div>
           {children}
         </div>
       </div>

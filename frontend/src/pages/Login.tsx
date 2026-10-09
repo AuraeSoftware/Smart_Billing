@@ -4,6 +4,7 @@ import { login } from '../lib/api'
 import { ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import AuthSplitShell from '../components/AuthSplitShell'
+import PasswordField from '../components/PasswordField'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -48,10 +49,7 @@ export default function Login() {
           <label>Email</label>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         </div>
-        <div className="field">
-          <label>Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        </div>
+        <PasswordField label="Password" value={password} onChange={setPassword} required autoComplete="current-password" />
         {error && <p className="error-text">{error}</p>}
         <button className="btn" type="submit" disabled={loading} style={{ width: '100%' }}>
           {loading ? 'Signing in…' : 'Sign in →'}
