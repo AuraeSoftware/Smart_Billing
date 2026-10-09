@@ -20,6 +20,7 @@ from app.models.subscription_plan import SubscriptionPlan
 from app.models.subscription_event import TenantSubscriptionEvent
 from app.models.payment_settings import PlatformPaymentSettings
 from app.models.currency_config import CurrencyRate, PlanCurrencyOverride
+from app.models.payment import SubscriptionPayment
 from app.schemas.tenant import TenantOut
 from app.core.security import hash_password, verify_password
 from app.core.currencies import WORLD_CURRENCIES
@@ -272,12 +273,46 @@ def update_subscription_plan(plan_id: uuid.UUID, payload: SubscriptionPlanIn, db
 @router.delete("/subscription-plans/{plan_id}")
 def deactivate_subscription_plan(plan_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
     """Soft-delete: plans already assigned to tenants must stay resolvable,
-    so this deactivates rather than removing the row."""
+    so this deactivates rather than removing the row. Unchanged — this is
+    still the "Deactivate" button on an active plan's card, exactly as
+    before. See delete_subscription_plan_permanently below for the new,
+    separate hard-delete action."""
     plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).one_or_none()
     if plan is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Plan not found.")
     plan.is_active = False
     db.add(plan)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/subscription-plans/{plan_id}/permanent")
+def delete_subscription_plan_permanently(plan_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    """True delete: removes the plan row outright, for cleaning up a plan
+    that was created by mistake or retired for good (e.g. the stray legacy
+    "Start" plan that previously needed a one-off script). Only available
+    once a plan has already been deactivated — this is a separate, explicit
+    action from "Deactivate" above, not a replacement for it, so that
+    workflow is unchanged.
+
+    Blocked (409) when the plan is still protected by real data: any tenant
+    currently on it, or any payment ever recorded against it — deleting the
+    row in either case would either silently drop a live tenant's plan or
+    violate the payments table's foreign key. Deactivating already covers
+    "stop offering this plan"; this is only for a plan nothing depends on."""
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).one_or_none()
+    if plan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Plan not found.")
+    if plan.is_active:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Deactivate this plan first, then delete it.")
+    tenant_count = db.query(Tenant).filter(Tenant.subscription_plan_id == plan.id).count()
+    if tenant_count > 0:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"{tenant_count} tenant(s) are still on this plan — reassign them before deleting it.")
+    payment_count = db.query(SubscriptionPayment).filter(SubscriptionPayment.subscription_plan_id == plan.id).count()
+    if payment_count > 0:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This plan has payment history and can't be permanently deleted — it stays deactivated instead.")
+    db.query(PlanCurrencyOverride).filter(PlanCurrencyOverride.plan_id == plan.id).delete()
+    db.delete(plan)
     db.commit()
     return {"ok": True}
 

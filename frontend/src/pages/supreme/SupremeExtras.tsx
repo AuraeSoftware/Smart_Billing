@@ -364,6 +364,8 @@ export function SubscriptionPlansPage() {
   const [editing, setEditing] = useState<PlanRow | null>(null)
   const [form, setForm] = useState(emptyPlanForm)
   const [error, setError] = useState('')
+  const [deleting, setDeleting] = useState<PlanRow | null>(null)
+  const [deleteError, setDeleteError] = useState('')
 
   async function load() {
     setLoading(true)
@@ -408,6 +410,20 @@ export function SubscriptionPlansPage() {
   async function deactivate(id: string) {
     await apiFetch(`/admin/subscription-plans/${id}`, { method: 'DELETE' })
     load()
+  }
+
+  // True delete — separate from Deactivate above (unchanged). Only ever
+  // offered on an already-deactivated plan; the backend additionally
+  // refuses if any tenant or payment history still references it, so this
+  // is safe to offer without first checking that client-side.
+  function openDeleteConfirm(p: PlanRow) { setDeleting(p); setDeleteError('') }
+  async function confirmPermanentDelete() {
+    if (!deleting) return
+    try {
+      await apiFetch(`/admin/subscription-plans/${deleting.id}/permanent`, { method: 'DELETE' })
+      setDeleting(null)
+      load()
+    } catch (e) { setDeleteError(e instanceof ApiError ? e.message : 'Could not delete the plan.') }
   }
 
   // A compact label+checkbox row shared by the feature list below, so the
@@ -538,7 +554,9 @@ export function SubscriptionPlansPage() {
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button className="btn ghost" style={{ padding: '6px 10px' }} onClick={() => openEdit(p)}>Edit</button>
-                  {p.is_active && <button className="btn warn" style={{ padding: '6px 10px' }} onClick={() => deactivate(p.id)}>Deactivate</button>}
+                  {p.is_active
+                    ? <button className="btn warn" style={{ padding: '6px 10px' }} onClick={() => deactivate(p.id)}>Deactivate</button>
+                    : <button className="btn warn" style={{ padding: '6px 10px' }} onClick={() => openDeleteConfirm(p)}>Delete</button>}
                 </div>
               </div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
@@ -574,6 +592,17 @@ export function SubscriptionPlansPage() {
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button className="btn" style={{ flex: 1 }} onClick={submitEdit}>Save changes</button>
           <button className="btn ghost" onClick={() => setEditing(null)}>Cancel</button>
+        </div>
+      </Modal>
+      <Modal title="Delete plan permanently?" open={!!deleting} onClose={() => setDeleting(null)} maxWidth={440}>
+        <p style={{ margin: '0 0 14px', fontSize: 14, color: 'var(--text-2)' }}>
+          This removes <b>{deleting?.name}</b> for good — unlike Deactivate, it can't be undone. It only
+          goes through if no tenant and no payment history is still tied to it.
+        </p>
+        {deleteError && <p style={{ color: 'var(--red)', marginBottom: 14 }}>{deleteError}</p>}
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn warn" style={{ flex: 1 }} onClick={confirmPermanentDelete}>Delete permanently</button>
+          <button className="btn ghost" onClick={() => setDeleting(null)}>Cancel</button>
         </div>
       </Modal>
     </div>
