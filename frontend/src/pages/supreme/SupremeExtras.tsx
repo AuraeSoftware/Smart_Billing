@@ -476,8 +476,6 @@ export function SubscriptionPlansPage() {
           {featureBox('Advanced reports', 'has_advanced_reports')}
           {featureBox('Multi-currency invoicing', 'has_multi_currency')}
           {featureBox('Employee management', 'has_employee_management')}
-          {featureBox('Expense tracking', 'has_expense_tracking', true)}
-          {featureBox('Multi-branch', 'has_multi_branch', true)}
         </div>
       </div>
 
@@ -557,8 +555,6 @@ export function SubscriptionPlansPage() {
                   {p.has_employee_management && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Employee management</div>}
                   {p.inventory_tier === 'included' && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Full inventory</div>}
                   {p.role_permissions_tier !== 'none' && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Role permissions ({p.role_permissions_tier})</div>}
-                  {p.has_expense_tracking && <div style={{ color: 'var(--text-3)' }}>○ Expense tracking <span style={{ fontSize: 10 }}>(coming soon)</span></div>}
-                  {p.has_multi_branch && <div style={{ color: 'var(--text-3)' }}>○ Multi-branch <span style={{ fontSize: 10 }}>(coming soon)</span></div>}
                 </div>
               </div>
             </DashboardCard>

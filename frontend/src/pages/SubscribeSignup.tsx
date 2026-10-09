@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, ApiError } from '../lib/api'
 import { Modal, readableAccent } from '../components/DashboardUI'
+import AuthSplitShell from '../components/AuthSplitShell'
 
 interface PublicPlan {
   id: string
@@ -107,6 +108,16 @@ export default function SubscribeSignup() {
     return g[cycle] ?? g.monthly ?? g.yearly
   }
 
+  // Enterprise is kept out of this self-serve picker — it's the
+  // sales-assisted tier (custom onboarding, priority support SLAs), so it's
+  // still a real plan the Supreme Admin can assign by hand, just not
+  // something a visitor can sign up and pay for themselves here. Starter,
+  // Business and Pro are offered self-serve in both India and Malaysia.
+  const selfServeTiers = useMemo(
+    () => tierGroups.filter((g) => g.tierName.toLowerCase() !== 'enterprise'),
+    [tierGroups],
+  )
+
   function selectTier(g: TierGroup) {
     const p = planFor(g, billingCycle)
     if (p) update('subscription_plan_id', p.id)
@@ -150,11 +161,20 @@ export default function SubscribeSignup() {
   }
 
   return (
-    <div className="auth-shell">
-      <div className="auth-card auth-wide card">
-        <h1>Start your Smart Billing subscription</h1>
-        <p className="muted">Step 1 — business details. Paid plans continue to payment next; the trial plan skips straight to branding. Branding is required before your workspace goes live.</p>
-        <form onSubmit={onSubmit}>
+    <AuthSplitShell
+      wide
+      headline={<>Get billing <span style={{ color: 'var(--accent)' }}>up and running</span> today.</>}
+      tagline="Set up your workspace, pick a plan, and start sending branded invoices in minutes."
+      bullets={[
+        'Branded invoices, quotations & receipts',
+        'A plan that fits your business, in your currency',
+        'Mandatory branding keeps every document on-brand',
+        'Live usage tracking from day one',
+      ]}
+    >
+      <h1 style={{ textAlign: 'center' }}>Register Super Admin</h1>
+      <p className="muted" style={{ textAlign: 'center', marginTop: -6 }}>Step 1 — business details. Paid plans continue to payment next; the trial plan skips straight to branding.</p>
+      <form onSubmit={onSubmit}>
           <div className="field">
             <label>Business name</label>
             <input required value={form.tenant_name} onChange={(e) => update('tenant_name', e.target.value)} />
@@ -209,7 +229,7 @@ export default function SubscribeSignup() {
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
-                {tierGroups.map((g) => {
+                {selfServeTiers.map((g) => {
                   const p = planFor(g, billingCycle)
                   if (!p) return null
                   const selected = form.subscription_plan_id === p.id
@@ -269,7 +289,7 @@ export default function SubscribeSignup() {
               so the saving is explicit rather than left for the visitor to
               compute themselves. */}
           {(() => {
-            const g = tierGroups.find((t) => t.tierName === previewTier)
+            const g = selfServeTiers.find((t) => t.tierName === previewTier)
             if (!g) return null
             const m = g.monthly, y = g.yearly
             const accent = readableAccent((m ?? y)!.color)
@@ -343,11 +363,10 @@ export default function SubscribeSignup() {
             <input type="password" required minLength={8} value={form.super_admin_password} onChange={(e) => update('super_admin_password', e.target.value)} />
           </div>
           {error && <p className="error-text">{error}</p>}
-          <button className="btn" type="submit" disabled={loading || plans.length === 0}>
+          <button className="btn" type="submit" disabled={loading || plans.length === 0} style={{ width: '100%' }}>
             {loading ? 'Creating…' : 'Continue to branding'}
           </button>
-        </form>
-      </div>
-    </div>
+      </form>
+    </AuthSplitShell>
   )
 }

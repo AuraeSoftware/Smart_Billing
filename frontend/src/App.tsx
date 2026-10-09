@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './lib/auth'
 import Login from './pages/Login'
@@ -6,6 +7,7 @@ import SubscribePayment from './pages/SubscribePayment'
 import SubscribeBranding from './pages/SubscribeBranding'
 import SuperAdminDashboard from './pages/SuperAdminDashboard'
 import SupremeAdminDashboard from './pages/SupremeAdminDashboard'
+import LoadingScreen from './components/LoadingScreen'
 
 function RequireRole({ role, children }: { role: 'supreme_admin' | 'any_tenant'; children: React.ReactNode }) {
   const { session } = useAuth()
@@ -15,7 +17,36 @@ function RequireRole({ role, children }: { role: 'supreme_admin' | 'any_tenant';
   return <>{children}</>
 }
 
+// The branded splash plays once per browser tab session — on a hard
+// reload/first visit, not on every in-app navigation — then gets out of
+// the way for good.
+const BOOT_KEY = 'sb_booted'
+
 export default function App() {
+  const [booting, setBooting] = useState(() => {
+    try {
+      return sessionStorage.getItem(BOOT_KEY) !== '1'
+    } catch {
+      return true
+    }
+  })
+
+  if (booting) {
+    return (
+      <LoadingScreen
+        onDone={() => {
+          try {
+            sessionStorage.setItem(BOOT_KEY, '1')
+          } catch {
+            // Private-browsing or storage-blocked — the splash just replays
+            // next time, which is harmless.
+          }
+          setBooting(false)
+        }}
+      />
+    )
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
