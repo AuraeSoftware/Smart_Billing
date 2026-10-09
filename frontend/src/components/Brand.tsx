@@ -1,52 +1,45 @@
 /**
- * Smart Billing's real logo lockup (red "S"-wallet mark + "SMART BILLING" +
- * "Ignite every transaction"), supplied as two finished exports — a wide
- * horizontal version and a stacked/square version — both on a white
- * background with black wordmark text. Rendered as-is inside a small white
- * "chip" so it reads cleanly whether it sits on the app's dark marketing
- * panel or a light card: the chip supplies its own guaranteed-white
- * backing, so the logo never depends on (or has to match) the page's
- * current theme.
+ * Smart Billing's logo lockup — transparent-background cutouts of the real
+ * artwork (no white box around it), with the wordmark re-colored for each
+ * theme: black text for light backgrounds, white text for dark ones (the
+ * red icon and accent letters are untouched either way, since red reads
+ * fine on both). Both images are always in the DOM and the app's existing
+ * `.logo-light`/`.logo-dark` theme utilities — tied to
+ * `html[data-theme="dark"]` — show only the one that matches the current
+ * theme, so it switches instantly with the rest of the UI.
  */
 const ASPECT = { wide: 1694 / 678, stacked: 1342 / 1664 }
 
 export default function Brand({
   size = 40,
   variant = 'wide',
-  chip = true,
+  theme,
 }: {
-  /** Rendered height in px (chip padding scales with it). */
+  /** Rendered height in px. */
   size?: number
-  /** 'wide' — horizontal lockup, for tight header bars.
+  /** 'wide' — horizontal lockup, for header bars.
    *  'stacked' — icon-over-wordmark, for a centered card brand. */
   variant?: 'wide' | 'stacked'
-  /** Wrap in a white rounded card. Leave off only when the surface behind
-   * it is already guaranteed white (e.g. inside another white chip). */
-  chip?: boolean
+  /** Pin to one variant's colors regardless of the site theme — for a
+   * surface with its own fixed background (e.g. the always-dark loading
+   * screen) where following the app theme would pick the wrong contrast.
+   * Leave unset to follow the app theme, which is the normal case. */
+  theme?: 'light' | 'dark'
 }) {
-  const src = variant === 'stacked' ? '/logo/lockup-stacked.png' : '/logo/lockup-wide.png'
   const height = size
   const width = Math.round(height * ASPECT[variant])
-  const img = (
-    <img
-      src={src}
-      alt="Smart Billing — Ignite every transaction"
-      style={{ display: 'block', height, width }}
-    />
-  )
-  if (!chip) return img
+  const imgStyle = { position: 'absolute' as const, inset: 0, width: '100%', height: '100%', display: 'block' }
+  if (theme) {
+    return (
+      <span style={{ display: 'inline-block', position: 'relative', width, height }}>
+        <img src={`/logo/lockup-${variant}-${theme}.png`} alt="Smart Billing — Ignite every transaction" style={imgStyle} />
+      </span>
+    )
+  }
   return (
-    <div
-      style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        alignSelf: 'flex-start', flexShrink: 0,
-        background: '#ffffff',
-        borderRadius: variant === 'stacked' ? Math.max(12, size * 0.18) : Math.max(8, size * 0.22),
-        padding: variant === 'stacked' ? size * 0.22 : size * 0.18,
-        boxShadow: '0 1px 2px rgba(0,0,0,0.08), 0 6px 20px rgba(0,0,0,0.14)',
-      }}
-    >
-      {img}
-    </div>
+    <span style={{ display: 'inline-block', position: 'relative', width, height }}>
+      <img src={`/logo/lockup-${variant}-light.png`} alt="Smart Billing — Ignite every transaction" className="logo-light" style={imgStyle} />
+      <img src={`/logo/lockup-${variant}-dark.png`} alt="Smart Billing — Ignite every transaction" className="logo-dark" style={imgStyle} />
+    </span>
   )
 }

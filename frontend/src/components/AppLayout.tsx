@@ -96,7 +96,7 @@ export default function AppLayout({ brandSuffix, navItems, activeKey, onNavigate
             </button>
             <div className="title">{activeLabel}</div>
           </div>
-          <div className="topbar-brand"><Brand size={22} variant="wide" /></div>
+          <div className="topbar-brand"><Brand size={28} variant="wide" /></div>
           <div className="topbar-actions" style={{ flex: 1, justifyContent: 'flex-end' }}>
             {topbarExtra}
             <ThemeToggle />

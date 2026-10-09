@@ -537,33 +537,69 @@ tbody tr:hover { background: var(--card-hover); }
 .auth-card { width: 100%; max-width: 440px; }
 .auth-wide { max-width: 640px; }
 
-/* Centered auth card (Login / Signup) — a single card on a plain page
-   background with a large brand mark on top, matching Smart Garage 360's
-   Login reference (no side marketing panel). */
-.auth-center {
+/* Split-panel auth layout (Login / Signup) — dark pitch panel + white form
+   card. The brand mark sits centered at the top of the dark panel, large
+   and clear (transparent theme-aware logo, no background box), with the
+   marketing copy below it. Falls back to a single centered column on
+   narrower screens, same breakpoint the rest of the app uses. */
+.auth-split {
   min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.15fr);
+}
+.auth-split-left {
+  background: radial-gradient(circle at 20% 20%, rgba(218,26,49,0.25), transparent 55%), linear-gradient(160deg, #1a0a0c 0%, #0b0c10 60%);
+  color: #fff;
+  padding: 44px 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  overflow: hidden;
+}
+.auth-split-brand { display: flex; justify-content: center; margin-bottom: 36px; }
+.auth-split-pitch { max-width: 440px; }
+.auth-split-pitch h2 {
+  font-size: clamp(26px, 3vw, 38px);
+  font-weight: 800;
+  line-height: 1.15;
+  margin: 0 0 10px;
+}
+.auth-split-pitch p {
+  color: rgba(255,255,255,0.68);
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0 0 26px;
+}
+.auth-split-pitch ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.auth-split-pitch li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: rgba(255,255,255,0.88); }
+.auth-split-check {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(218,26,49,0.18); color: var(--accent); font-size: 11px; font-weight: 900;
+}
+.auth-split-footer { color: rgba(255,255,255,0.35); font-size: 12px; }
+
+.auth-split-right {
+  background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-3);
-  padding: 32px 16px;
-  padding-top: calc(32px + env(safe-area-inset-top));
-  padding-bottom: calc(32px + env(safe-area-inset-bottom));
+  padding: 32px;
   position: relative;
 }
-.auth-center-theme { position: absolute; top: 20px; right: 20px; }
-.auth-center-card {
-  width: 100%;
-  max-width: 420px;
-  padding: 36px 32px;
-  box-shadow: var(--shadow-lg);
-}
-.auth-center-card-wide { max-width: 560px; }
-.auth-center-brand { display: flex; justify-content: center; margin-bottom: 22px; }
+.auth-split-theme { position: absolute; top: 20px; right: 20px; }
+.auth-split-card { width: 100%; max-width: 420px; }
+.auth-split-card-wide { max-width: 560px; }
+.auth-split-card-brand { display: none; }
 
 @media (max-width: 860px) {
-  .auth-center { padding: 24px 16px; }
-  .auth-center-card { padding: 28px 20px; }
+  .auth-split { grid-template-columns: 1fr; }
+  .auth-split-left { display: none; }
+  .auth-split-right { padding: 24px 16px; min-height: 100vh; }
+  /* The dark panel (and its logo) is hidden on narrow screens, so the
+     form card carries its own centered brand lockup instead. */
+  .auth-split-card-brand { display: flex; justify-content: center; margin-bottom: 20px; }
 }
 
 /* ══════════════════════════════════════════════════════════
