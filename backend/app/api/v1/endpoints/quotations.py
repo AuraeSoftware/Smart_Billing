@@ -92,7 +92,7 @@ def convert_to_invoice(
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one()
     if tenant.subscription_plan_id:
         plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none()
-        if plan and invoices_this_month(db, tenant_id) >= plan.max_invoices_per_month:
+        if plan and plan.max_invoices_per_month is not None and invoices_this_month(db, tenant_id) >= plan.max_invoices_per_month:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
                 f"Monthly invoice limit reached ({plan.max_invoices_per_month}/{plan.max_invoices_per_month} on "

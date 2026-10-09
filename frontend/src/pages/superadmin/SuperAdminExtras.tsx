@@ -21,6 +21,13 @@ interface MyPlan {
   plan_billing_cycle: string | null
   plan_max_users: number | null
   plan_max_invoices_per_month: number | null
+  plan_max_branches: number | null
+  plan_max_products: number | null
+  plan_has_priority_support: boolean
+  plan_has_advanced_reports: boolean
+  plan_has_employee_management: boolean
+  plan_inventory_tier: string | null
+  plan_role_permissions_tier: string | null
 }
 
 export function MyPlanPage() {
@@ -45,8 +52,17 @@ export function MyPlanPage() {
           <div><div className="muted">Plan</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.plan_name}</div></div>
           <div><div className="muted">Price</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.currency} {plan.plan_price?.toFixed(2)} / {plan.plan_billing_cycle}</div></div>
           <div><div className="muted">Max users</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.plan_max_users}</div></div>
-          <div><div className="muted">Max invoices / month</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.plan_max_invoices_per_month}</div></div>
+          <div><div className="muted">Max invoices / month</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.plan_max_invoices_per_month ?? 'Unlimited'}</div></div>
+          <div><div className="muted">Max branches</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.plan_max_branches ?? '—'}</div></div>
+          <div><div className="muted">Max products</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.plan_max_products ?? 'Unlimited'}</div></div>
           {plan.plan_description && <div style={{ gridColumn: '1 / -1' }}><div className="muted">Description</div><div>{plan.plan_description}</div></div>}
+          <div style={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+            {plan.plan_has_priority_support && <span className="status-chip status-chip-blue">Priority support</span>}
+            {plan.plan_has_advanced_reports && <span className="status-chip status-chip-blue">Advanced reports</span>}
+            {plan.plan_has_employee_management && <span className="status-chip status-chip-blue">Employee management</span>}
+            {plan.plan_inventory_tier === 'included' && <span className="status-chip status-chip-blue">Full inventory</span>}
+            {plan.plan_role_permissions_tier && plan.plan_role_permissions_tier !== 'none' && <span className="status-chip status-chip-blue">Role permissions</span>}
+          </div>
         </div>
       ) : (
         <EmptyState title="No plan assigned yet" sub="Aurae Software Solutions will assign a plan to your workspace shortly." />

@@ -10,13 +10,21 @@ interface PublicPlan {
   price: number
   billing_cycle: string
   max_users: number
-  max_invoices_per_month: number
+  max_invoices_per_month: number | null
   color: string
   has_priority_support: boolean
   has_api_access: boolean
   has_advanced_reports: boolean
   has_multi_currency: boolean
   is_trial: boolean
+  trial_days: number
+  max_branches: number
+  max_products: number | null
+  has_employee_management: boolean
+  has_expense_tracking: boolean
+  has_multi_branch: boolean
+  inventory_tier: 'basic' | 'included'
+  role_permissions_tier: 'none' | 'basic' | 'included'
 }
 
 interface WorldCurrency { code: string; name: string }
@@ -183,10 +191,23 @@ export default function SubscribeSignup() {
                       {p.is_trial ? 'Free' : `${p.currency} ${p.price.toFixed(0)}`}
                       <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-3)' }}>/{p.billing_cycle}</span>
                     </div>
+                    {p.is_trial && (
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--blue)', marginTop: 2 }}>{p.trial_days}-day free trial · no card required</div>
+                    )}
                     <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>
-                      {p.max_invoices_per_month} invoices/mo · {p.max_users} users
+                      {p.max_invoices_per_month ?? 'Unlimited'} invoices/mo · {p.max_users} users · {p.max_branches} branch{p.max_branches === 1 ? '' : 'es'} · {p.max_products ?? 'Unlimited'} products
                     </div>
                     {p.description && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 6 }}>{p.description}</div>}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+                      {p.has_priority_support && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: 'var(--bg-3)', color: 'var(--text-2)' }}>Priority support</span>}
+                      {p.has_advanced_reports && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: 'var(--bg-3)', color: 'var(--text-2)' }}>Advanced reports</span>}
+                      {p.has_employee_management && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: 'var(--bg-3)', color: 'var(--text-2)' }}>Employee management</span>}
+                      {p.inventory_tier === 'included' && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: 'var(--bg-3)', color: 'var(--text-2)' }}>Full inventory</span>}
+                      {p.role_permissions_tier !== 'none' && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: 'var(--bg-3)', color: 'var(--text-2)' }}>Role permissions</span>}
+                      {/* Expense tracking and multi-branch are plan metadata only — no
+                          such module exists yet, so they're never shown as an included
+                          feature here (that would be a false claim to a paying signup). */}
+                    </div>
                   </div>
                 )
               })}

@@ -178,7 +178,7 @@ class SubscriptionPlanOut(BaseModel):
     price: float
     billing_cycle: str
     max_users: int
-    max_invoices_per_month: int
+    max_invoices_per_month: int | None
     is_active: bool
     color: str
     has_priority_support: bool
@@ -186,6 +186,14 @@ class SubscriptionPlanOut(BaseModel):
     has_advanced_reports: bool
     has_multi_currency: bool
     is_trial: bool = False
+    trial_days: int = 14
+    max_branches: int = 1
+    max_products: int | None = None
+    has_employee_management: bool = False
+    has_expense_tracking: bool = False
+    has_multi_branch: bool = False
+    inventory_tier: str = "included"
+    role_permissions_tier: str = "none"
     tenant_count: int = 0
 
     class Config:
@@ -199,7 +207,7 @@ class SubscriptionPlanIn(BaseModel):
     price: float = 0
     billing_cycle: str = "monthly"
     max_users: int = 5
-    max_invoices_per_month: int = 100
+    max_invoices_per_month: int | None = 100
     is_active: bool = True
     color: str = "#da1a31"
     has_priority_support: bool = False
@@ -207,6 +215,14 @@ class SubscriptionPlanIn(BaseModel):
     has_advanced_reports: bool = False
     has_multi_currency: bool = False
     is_trial: bool = False
+    trial_days: int = 14
+    max_branches: int = 1
+    max_products: int | None = None
+    has_employee_management: bool = False
+    has_expense_tracking: bool = False
+    has_multi_branch: bool = False
+    inventory_tier: str = "included"
+    role_permissions_tier: str = "none"
 
 
 def _plan_out(db: Session, p: SubscriptionPlan) -> SubscriptionPlanOut:
@@ -217,7 +233,11 @@ def _plan_out(db: Session, p: SubscriptionPlan) -> SubscriptionPlanOut:
         max_invoices_per_month=p.max_invoices_per_month, is_active=p.is_active,
         color=p.color, has_priority_support=p.has_priority_support, has_api_access=p.has_api_access,
         has_advanced_reports=p.has_advanced_reports, has_multi_currency=p.has_multi_currency,
-        is_trial=p.is_trial, tenant_count=count,
+        is_trial=p.is_trial, trial_days=p.trial_days, max_branches=p.max_branches,
+        max_products=p.max_products, has_employee_management=p.has_employee_management,
+        has_expense_tracking=p.has_expense_tracking, has_multi_branch=p.has_multi_branch,
+        inventory_tier=p.inventory_tier, role_permissions_tier=p.role_permissions_tier,
+        tenant_count=count,
     )
 
 

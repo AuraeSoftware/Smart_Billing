@@ -177,6 +177,13 @@ class MyPlanOut(BaseModel):
     plan_billing_cycle: str | None
     plan_max_users: int | None
     plan_max_invoices_per_month: int | None
+    plan_max_branches: int | None
+    plan_max_products: int | None
+    plan_has_priority_support: bool = False
+    plan_has_advanced_reports: bool = False
+    plan_has_employee_management: bool = False
+    plan_inventory_tier: str | None = None
+    plan_role_permissions_tier: str | None = None
 
 
 @router.get("/my-plan", response_model=MyPlanOut)
@@ -202,4 +209,11 @@ def get_my_plan(
         plan_billing_cycle=plan.billing_cycle if plan else None,
         plan_max_users=plan.max_users if plan else None,
         plan_max_invoices_per_month=plan.max_invoices_per_month if plan else None,
+        plan_max_branches=plan.max_branches if plan else None,
+        plan_max_products=plan.max_products if plan else None,
+        plan_has_priority_support=plan.has_priority_support if plan else False,
+        plan_has_advanced_reports=plan.has_advanced_reports if plan else False,
+        plan_has_employee_management=plan.has_employee_management if plan else False,
+        plan_inventory_tier=plan.inventory_tier if plan else None,
+        plan_role_permissions_tier=plan.role_permissions_tier if plan else None,
     )

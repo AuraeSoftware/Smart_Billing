@@ -34,13 +34,21 @@ class PublicPlanOut(BaseModel):
     price: float
     billing_cycle: str
     max_users: int
-    max_invoices_per_month: int
+    max_invoices_per_month: Optional[int]
     color: str
     has_priority_support: bool
     has_api_access: bool
     has_advanced_reports: bool
     has_multi_currency: bool
     is_trial: bool
+    trial_days: int = 14
+    max_branches: int = 1
+    max_products: Optional[int] = None
+    has_employee_management: bool = False
+    has_expense_tracking: bool = False
+    has_multi_branch: bool = False
+    inventory_tier: str = "included"
+    role_permissions_tier: str = "none"
 
     class Config:
         from_attributes = True

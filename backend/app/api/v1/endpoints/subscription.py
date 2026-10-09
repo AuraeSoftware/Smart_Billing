@@ -71,6 +71,10 @@ def list_public_plans(
             billing_cycle=p.billing_cycle, max_users=p.max_users, max_invoices_per_month=p.max_invoices_per_month,
             color=p.color, has_priority_support=p.has_priority_support, has_api_access=p.has_api_access,
             has_advanced_reports=p.has_advanced_reports, has_multi_currency=p.has_multi_currency, is_trial=p.is_trial,
+            trial_days=p.trial_days, max_branches=p.max_branches, max_products=p.max_products,
+            has_employee_management=p.has_employee_management, has_expense_tracking=p.has_expense_tracking,
+            has_multi_branch=p.has_multi_branch, inventory_tier=p.inventory_tier,
+            role_permissions_tier=p.role_permissions_tier,
         ))
     return out
 

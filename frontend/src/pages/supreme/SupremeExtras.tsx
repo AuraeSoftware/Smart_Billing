@@ -47,7 +47,7 @@ interface PlanRow {
   price: number
   billing_cycle: string
   max_users: number
-  max_invoices_per_month: number
+  max_invoices_per_month: number | null
   is_active: boolean
   color: string
   has_priority_support: boolean
@@ -55,6 +55,14 @@ interface PlanRow {
   has_advanced_reports: boolean
   has_multi_currency: boolean
   is_trial: boolean
+  trial_days: number
+  max_branches: number
+  max_products: number | null
+  has_employee_management: boolean
+  has_expense_tracking: boolean
+  has_multi_branch: boolean
+  inventory_tier: 'basic' | 'included'
+  role_permissions_tier: 'none' | 'basic' | 'included'
   tenant_count: number
 }
 
@@ -341,9 +349,12 @@ export function SuperAdminsPage() {
 
 const emptyPlanForm = {
   name: '', description: '', currency: 'INR', price: 0, billing_cycle: 'monthly',
-  max_users: 5, max_invoices_per_month: 100, is_active: true, color: PLAN_COLORS[0],
+  max_users: 5, max_invoices_per_month: 100 as number | null, is_active: true, color: PLAN_COLORS[0],
   has_priority_support: false, has_api_access: false, has_advanced_reports: false, has_multi_currency: false,
-  is_trial: false,
+  is_trial: false, trial_days: 14, max_branches: 1, max_products: null as number | null,
+  has_employee_management: false, has_expense_tracking: false, has_multi_branch: false,
+  inventory_tier: 'included' as 'basic' | 'included',
+  role_permissions_tier: 'none' as 'none' | 'basic' | 'included',
 }
 
 export function SubscriptionPlansPage() {
@@ -372,7 +383,9 @@ export function SubscriptionPlansPage() {
       billing_cycle: p.billing_cycle, max_users: p.max_users, max_invoices_per_month: p.max_invoices_per_month,
       is_active: p.is_active, color: p.color, has_priority_support: p.has_priority_support,
       has_api_access: p.has_api_access, has_advanced_reports: p.has_advanced_reports, has_multi_currency: p.has_multi_currency,
-      is_trial: p.is_trial,
+      is_trial: p.is_trial, trial_days: p.trial_days, max_branches: p.max_branches, max_products: p.max_products,
+      has_employee_management: p.has_employee_management, has_expense_tracking: p.has_expense_tracking,
+      has_multi_branch: p.has_multi_branch, inventory_tier: p.inventory_tier, role_permissions_tier: p.role_permissions_tier,
     })
   }
 
@@ -413,13 +426,26 @@ export function SubscriptionPlansPage() {
         </label>
         <label>Max users<input type="number" value={form.max_users} onChange={(e) => setForm({ ...form, max_users: Number(e.target.value) })} /></label>
       </div>
-      <label>Max invoices / month<input type="number" value={form.max_invoices_per_month} onChange={(e) => setForm({ ...form, max_invoices_per_month: Number(e.target.value) })} /></label>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+        <label>Max invoices / month
+          <input type="number" placeholder="Blank = unlimited" value={form.max_invoices_per_month ?? ''}
+            onChange={(e) => setForm({ ...form, max_invoices_per_month: e.target.value === '' ? null : Number(e.target.value) })} />
+        </label>
+        <label>Max products
+          <input type="number" placeholder="Blank = unlimited" value={form.max_products ?? ''}
+            onChange={(e) => setForm({ ...form, max_products: e.target.value === '' ? null : Number(e.target.value) })} />
+        </label>
+        <label>Max branches<input type="number" value={form.max_branches} onChange={(e) => setForm({ ...form, max_branches: Number(e.target.value) })} /></label>
+      </div>
       <label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} /></label>
 
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', flexDirection: 'row' }}>
         <input type="checkbox" checked={form.is_trial} onChange={(e) => setForm({ ...form, is_trial: e.target.checked })} style={{ width: 'auto' }} />
         Free trial plan — skips payment at signup, limited to one use per company
       </label>
+      {form.is_trial && (
+        <label>Trial length (days)<input type="number" value={form.trial_days} onChange={(e) => setForm({ ...form, trial_days: Number(e.target.value) })} /></label>
+      )}
 
       <div>
         <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Included features</label>
@@ -436,7 +462,34 @@ export function SubscriptionPlansPage() {
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
             <input type="checkbox" checked={form.has_multi_currency} onChange={(e) => setForm({ ...form, has_multi_currency: e.target.checked })} /> Multi-currency invoicing
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={form.has_employee_management} onChange={(e) => setForm({ ...form, has_employee_management: e.target.checked })} /> Employee management (Team page)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={form.has_expense_tracking} onChange={(e) => setForm({ ...form, has_expense_tracking: e.target.checked })} /> Expense tracking
+            <span className="status-chip status-chip-amber" style={{ fontSize: 10 }}>Coming soon — not built yet</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={form.has_multi_branch} onChange={(e) => setForm({ ...form, has_multi_branch: e.target.checked })} /> Multi-branch
+            <span className="status-chip status-chip-amber" style={{ fontSize: 10 }}>Coming soon — not built yet</span>
+          </label>
         </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <label>Inventory
+          <select value={form.inventory_tier} onChange={(e) => setForm({ ...form, inventory_tier: e.target.value as 'basic' | 'included' })}>
+            <option value="basic">Basic</option>
+            <option value="included">Included</option>
+          </select>
+        </label>
+        <label>Role permissions
+          <select value={form.role_permissions_tier} onChange={(e) => setForm({ ...form, role_permissions_tier: e.target.value as 'none' | 'basic' | 'included' })}>
+            <option value="none">None</option>
+            <option value="basic">Basic</option>
+            <option value="included">Included</option>
+          </select>
+        </label>
       </div>
 
       <div>
@@ -488,12 +541,19 @@ export function SubscriptionPlansPage() {
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', marginBottom: 8 }}>Included</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: 'var(--text-2)' }}>
-                  <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> {p.max_users} users · {p.max_invoices_per_month} invoices/mo</div>
+                  <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> {p.max_users} users · {p.max_invoices_per_month ?? 'Unlimited'} invoices/mo</div>
+                  <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> {p.max_branches} branch{p.max_branches === 1 ? '' : 'es'} · {p.max_products ?? 'Unlimited'} products</div>
+                  {p.is_trial && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> {p.trial_days}-day free trial</div>}
                   <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> {p.tenant_count} tenant{p.tenant_count === 1 ? '' : 's'} on this plan</div>
                   {p.has_priority_support && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Priority support</div>}
                   {p.has_api_access && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> API access</div>}
                   {p.has_advanced_reports && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Advanced reports</div>}
                   {p.has_multi_currency && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Multi-currency invoicing</div>}
+                  {p.has_employee_management && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Employee management</div>}
+                  {p.inventory_tier === 'included' && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Full inventory</div>}
+                  {p.role_permissions_tier !== 'none' && <div><span style={{ color: p.color, fontWeight: 800 }}>✓</span> Role permissions ({p.role_permissions_tier})</div>}
+                  {p.has_expense_tracking && <div style={{ color: 'var(--text-3)' }}>○ Expense tracking <span style={{ fontSize: 10 }}>(coming soon)</span></div>}
+                  {p.has_multi_branch && <div style={{ color: 'var(--text-3)' }}>○ Multi-branch <span style={{ fontSize: 10 }}>(coming soon)</span></div>}
                 </div>
               </div>
             </DashboardCard>
