@@ -45,7 +45,7 @@ const SUPER_ADMIN_ONLY_KEYS = new Set(['team', 'catalog', 'gst-manager'])
 
 interface LineItem { description: string; quantity: number; unit_price: number; tax_rate_percent: number; discount_percent: number }
 
-interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string; due_date?: string | null; notes?: string | null }
+interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string; due_date?: string | null; notes?: string | null; is_overdue?: boolean }
 interface QuotationRow { id: string; number: string; customer_name: string; status: string; grand_total: number; issue_date: string; valid_until?: string | null; notes?: string | null }
 interface ReceiptRow { id: string; number: string; invoice_id: string; amount: number; payment_method?: string | null; payment_reference?: string | null; notes?: string | null; received_at: string }
 
@@ -641,10 +641,20 @@ function InvoicesPanel({
           <thead><tr><th>Number</th><th>Customer</th><th>Purpose</th><th>Issue date</th><th>Due date</th><th>Status</th><th>Total</th><th>Paid</th><th></th></tr></thead>
           <tbody>
             {items.map((inv) => (
-              <tr key={inv.id}>
+              // SB, overdue highlight: Invoice.is_overdue already excludes drafts
+              // (a document nobody's sent yet can't be late) and anything paid or
+              // cancelled — same rule the Overview banner's count uses. This only
+              // tints the row and flags the due date; it does not touch the
+              // Status column, which keeps showing the real sent/viewed/
+              // partially_paid workflow status exactly as before.
+              <tr key={inv.id} style={inv.is_overdue ? { background: 'color-mix(in srgb, var(--red) 8%, transparent)' } : undefined}>
                 <td>{inv.number}</td><td>{inv.customer_name}</td>
                 <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{inv.notes || <span className="muted">—</span>}</td>
-                <td>{inv.issue_date}</td><td>{inv.due_date || <span className="muted">—</span>}</td>
+                <td>{inv.issue_date}</td>
+                <td style={inv.is_overdue ? { color: 'var(--red)', fontWeight: 700 } : undefined}>
+                  {inv.due_date || <span className="muted">—</span>}
+                  {inv.is_overdue && <span className="status-chip status-chip-red" style={{ marginLeft: 6 }}>Overdue</span>}
+                </td>
                 <td><StatusChip status={inv.status} /></td>
                 <td>{money(inv.grand_total, currency)}</td><td>{money(inv.amount_paid, currency)}</td>
                 <td>

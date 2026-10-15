@@ -303,10 +303,11 @@ def tenant_analytics(
     revenue = db.query(func.coalesce(func.sum(Receipt.amount), 0)).filter(Receipt.tenant_id == tenant_id).scalar() or 0
 
     today = date.today()
-    overdue = sum(
-        1 for i in invoices
-        if i.due_date and i.due_date < today and i.status not in (InvoiceStatus.PAID, InvoiceStatus.CANCELLED)
-    )
+    # Invoice.is_overdue is the single source of truth (also used by
+    # InvoiceOut, so the Invoices table and this count never disagree). A
+    # DRAFT invoice hasn't been sent to anyone yet, so its due date doesn't
+    # start counting against it until it's actually dispatched.
+    overdue = sum(1 for i in invoices if i.is_overdue)
 
     thirty_days_ago = today - timedelta(days=30)
     recent_revenue = (

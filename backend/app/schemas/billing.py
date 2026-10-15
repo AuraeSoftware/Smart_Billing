@@ -72,6 +72,12 @@ class InvoiceOut(BaseModel):
     grand_total: float
     amount_paid: float
     customer_id: Optional[UUID] = None
+    # Read-only, computed from Invoice.is_overdue (never a stored column):
+    # past due date AND actually sent to the customer. A draft is excluded
+    # on purpose — a document nobody has sent yet can't be late. Matches the
+    # same rule /analytics/tenant's overdue_invoice_count now uses, so the
+    # Overview banner and this flag always agree with each other.
+    is_overdue: bool = False
     # The purpose/description captured at creation (InvoiceCreate.notes) was
     # already stored on the model but never returned — the list table and
     # detail view had no way to show it. Purely additive: no existing field

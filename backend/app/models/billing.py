@@ -85,6 +85,22 @@ class Invoice(Base):
     items: Mapped[list["InvoiceItem"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
     receipts: Mapped[list["Receipt"]] = relationship(back_populates="invoice")
 
+    @property
+    def is_overdue(self) -> bool:
+        """Single source of truth for "is this invoice overdue", used both
+        by the /analytics/tenant count and by InvoiceOut so the list table
+        can flag the same invoices the Overview banner counts. A DRAFT has
+        never been sent to the customer, so its due date hasn't started
+        counting against anyone yet; PAID and CANCELLED are settled either
+        way. This never writes the stored `status` column (that stays
+        exactly what the SENT/VIEWED/CANCELLED transitions and receipt
+        recording already set it to) — it's a read-only, computed flag."""
+        return bool(
+            self.due_date
+            and self.due_date < date.today()
+            and self.status not in (InvoiceStatus.DRAFT, InvoiceStatus.PAID, InvoiceStatus.CANCELLED)
+        )
+
 
 class InvoiceItem(Base):
     __tablename__ = "invoice_items"
