@@ -2,7 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     auth, subscription, invoices, quotations, receipts, admin, account, users, analytics,
-    catalog, gst,
+    catalog, gst, customers,
 )
 
 api_router = APIRouter()
@@ -17,3 +17,4 @@ api_router.include_router(users.router, prefix="/tenant-users", tags=["tenant us
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api_router.include_router(catalog.router, prefix="/catalog", tags=["catalog"])
 api_router.include_router(gst.router, prefix="/gst", tags=["gst"])
+api_router.include_router(customers.router, prefix="/customers", tags=["customers"])

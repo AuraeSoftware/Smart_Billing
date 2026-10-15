@@ -318,7 +318,7 @@ function PlatformCommandCenter({
           icon={<Icon path={ICONS.revenue} size={18} />}
           label="Platform revenue"
           value={periodRevenue.toLocaleString()}
-          sub={selectedYear === 'All' && selectedMonth === 'All' ? 'all time' : `${selectedMonth === 'All' ? 'All months' : MONTHS[Number(selectedMonth) - 1]} ${selectedYear === 'All' ? '· all years' : selectedYear}`}
+          sub={selectedYear === 'All' && selectedMonth === 'All' ? 'cash collected · all time' : `cash collected · ${selectedMonth === 'All' ? 'All months' : MONTHS[Number(selectedMonth) - 1]} ${selectedYear === 'All' ? '· all years' : selectedYear}`}
           color="var(--green)"
           onClick={() => setStatModal('revenue')}
         />
@@ -500,6 +500,10 @@ function PlatformCommandCenter({
       </Modal>
 
       <Modal title="Platform revenue" open={statModal === 'revenue'} onClose={() => setStatModal(null)} maxWidth={520}>
+        <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--text-3)' }}>
+          Actual cash collected across every tenant (sum of recorded receipts) — distinct from Subscription History's
+          "Plan Value Assigned", which is the list price of the plan a tenant was moved onto, not a payment.
+        </p>
         <DetailRow label="Revenue in period" value={periodRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} strong />
         <DetailRow label="Period" value={`${selectedMonth === 'All' ? 'All months' : MONTHS[Number(selectedMonth) - 1]} · ${selectedYear === 'All' ? 'All years' : selectedYear}`} />
         <div style={{ marginTop: 14 }}>

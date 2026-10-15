@@ -21,6 +21,89 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
+# SB06 — Reports date-range + export. The existing /tenant endpoint below
+# (used by the Overview page) is untouched; this is a separate, additive
+# endpoint purely for the Reports tab, so nothing already depending on
+# /analytics/tenant's all-time figures changes shape or meaning.
+# ---------------------------------------------------------------------------
+
+class ReportRow(BaseModel):
+    date: str
+    doc_type: str  # "invoice" | "quotation" | "receipt"
+    number: str
+    customer_name: str
+    status: str
+    amount: float
+
+
+class TenantReportOut(BaseModel):
+    from_date: str | None
+    to_date: str | None
+    invoice_count: int
+    quotation_count: int
+    receipt_count: int
+    revenue_collected: float
+    outstanding_receivables: float
+    rows: list[ReportRow]
+
+
+@router.get("/tenant/report", response_model=TenantReportOut)
+def tenant_report(
+    from_date: date | None = None,
+    to_date: date | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_tenant_staff),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    """Date-filtered activity for the Super Admin's Reports tab — the same
+    figures as /analytics/tenant, scoped to a From/To range, plus a
+    transaction-level table the "Export (CSV)" button downloads as-is."""
+    inv_q = db.query(Invoice).filter(Invoice.tenant_id == tenant_id)
+    quo_q = db.query(Quotation).filter(Quotation.tenant_id == tenant_id)
+    rec_q = db.query(Receipt).filter(Receipt.tenant_id == tenant_id)
+    if from_date:
+        inv_q = inv_q.filter(Invoice.issue_date >= from_date)
+        quo_q = quo_q.filter(Quotation.issue_date >= from_date)
+        rec_q = rec_q.filter(Receipt.received_at >= from_date)
+    if to_date:
+        inv_q = inv_q.filter(Invoice.issue_date <= to_date)
+        quo_q = quo_q.filter(Quotation.issue_date <= to_date)
+        rec_q = rec_q.filter(Receipt.received_at <= to_date)
+
+    invoices = inv_q.all()
+    quotations = quo_q.all()
+    receipts = rec_q.all()
+
+    outstanding = sum(
+        float(i.grand_total) - float(i.amount_paid) for i in invoices if i.status != InvoiceStatus.CANCELLED
+    )
+    revenue = sum(float(r.amount) for r in receipts)
+
+    rows = [
+        ReportRow(date=i.issue_date.isoformat(), doc_type="invoice", number=i.number, customer_name=i.customer_name, status=i.status.value, amount=float(i.grand_total))
+        for i in invoices
+    ] + [
+        ReportRow(date=q.issue_date.isoformat(), doc_type="quotation", number=q.number, customer_name=q.customer_name, status=q.status.value, amount=float(q.grand_total))
+        for q in quotations
+    ] + [
+        ReportRow(date=r.received_at.isoformat(), doc_type="receipt", number=r.number, customer_name=(db.query(Invoice).filter(Invoice.id == r.invoice_id).one()).customer_name, status="received", amount=float(r.amount))
+        for r in receipts
+    ]
+    rows.sort(key=lambda r: r.date, reverse=True)
+
+    return TenantReportOut(
+        from_date=from_date.isoformat() if from_date else None,
+        to_date=to_date.isoformat() if to_date else None,
+        invoice_count=len(invoices),
+        quotation_count=len(quotations),
+        receipt_count=len(receipts),
+        revenue_collected=round(revenue, 2),
+        outstanding_receivables=round(outstanding, 2),
+        rows=rows,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Customers — Smart Garage 360's "Customers" sidebar page, adapted for
 # billing: there's no separate Customer table (invoices/quotations carry
 # their own customer_name/email), so this aggregates by customer name across

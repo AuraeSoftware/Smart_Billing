@@ -69,6 +69,14 @@ def receipt_pdf(
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one()
     branding = db.query(TenantBranding).filter(TenantBranding.tenant_id == tenant_id).one_or_none()
 
+    # SB03: tenant-currency prefix + fixed 2-decimal formatting, same as
+    # invoices/quotations.
+    cur = tenant.currency
+    # SB02: the receipt PDF only ever showed the amount just received, with
+    # no way to see the invoice's total, how much has been paid in all, or
+    # what's still outstanding — added here without touching the existing
+    # "Amount received" line or the full/partial wording above it.
+    remaining = max(float(invoice.grand_total) - float(invoice.amount_paid), 0)
     pdf_bytes = render_document_pdf(
         doc_type="RECEIPT", number=receipt.number, tenant_name=tenant.name, branding=branding,
         customer_name=invoice.customer_name, issue_date=receipt.received_at.isoformat(),
@@ -78,8 +86,13 @@ def receipt_pdf(
             *([f"Reference: {receipt.payment_reference}"] if receipt.payment_reference else []),
             *([f"Purpose: {receipt.notes}"] if receipt.notes else []),
         ],
-        line_items=[{"description": f"Payment received ({'partial' if receipt.is_partial else 'full'})", "quantity": 1, "unit_price": f"{receipt.amount:,.2f}", "line_total": f"{receipt.amount:,.2f}"}],
-        totals=[("Amount received", f"{receipt.amount:,.2f}")],
+        line_items=[{"description": f"Payment received ({'partial' if receipt.is_partial else 'full'})", "quantity": 1, "unit_price": f"{cur} {float(receipt.amount):,.2f}", "line_total": f"{cur} {float(receipt.amount):,.2f}"}],
+        totals=[
+            ("Invoice total", f"{cur} {float(invoice.grand_total):,.2f}"),
+            ("Total paid to date", f"{cur} {float(invoice.amount_paid):,.2f}"),
+            ("Balance remaining", f"{cur} {remaining:,.2f}"),
+            ("Amount received", f"{cur} {float(receipt.amount):,.2f}"),
+        ],
     )
     return Response(content=pdf_bytes, media_type="application/pdf", headers={
         "Content-Disposition": f'inline; filename="{receipt.number}.pdf"'

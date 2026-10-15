@@ -870,11 +870,16 @@ export function SubscriptionHistoryPage() {
         </div>
       </div>
 
+      {/* SB10: this is the LIST PRICE of the plan a tenant was moved onto at
+          each change event — not cash actually collected (that figure is the
+          Supreme Admin dashboard's "Platform revenue", built from real
+          Receipt rows in analytics.py). Labeled explicitly so the two don't
+          read as a discrepancy when they don't match. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 16, marginBottom: 24 }}>
         {currencyStats.length === 0 ? (
-          <KpiCard icon={<Icon path={ICONS.revenue} />} label="Total Revenue" value="—" color="var(--text-3)" />
+          <KpiCard icon={<Icon path={ICONS.revenue} />} label="Plan Value Assigned" value="—" color="var(--text-3)" />
         ) : currencyStats.map(([currency, stat]) => (
-          <KpiCard key={currency} icon={<Icon path={ICONS.revenue} />} label={`Revenue (${currency})`} value={`${currency} ${stat.revenue.toFixed(2)}`} sub={`${stat.count} plan changes`} color="var(--green)" />
+          <KpiCard key={currency} icon={<Icon path={ICONS.revenue} />} label={`Plan Value Assigned (${currency})`} value={`${currency} ${stat.revenue.toFixed(2)}`} sub={`${stat.count} plan changes · list price, not cash collected`} color="var(--green)" />
         ))}
       </div>
 

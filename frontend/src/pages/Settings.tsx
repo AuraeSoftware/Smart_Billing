@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { apiFetch, ApiError } from '../lib/api'
+import { useAuth } from '../lib/auth'
 
 interface Branding { logo_url: string | null; header_url: string | null; footer_url: string | null; footer_text: string | null }
 interface TenantUser { id: string; full_name: string; email: string; is_active: boolean; created_at: string }
@@ -20,6 +21,14 @@ export default function Settings() {
 }
 
 function BrandingSection() {
+  const { session } = useAuth()
+  // SB09: branding and team management are both require_super_admin on the
+  // backend (see Settings.tsx's old PUT /subscription/branding and
+  // POST /tenant-users calls) — a Team member (tenant_user) could still see
+  // and click "Save changes" and get a 403. Disabling the controls here
+  // keeps the page visible (so staff can see the on-file branding status)
+  // without offering an action that was always going to be rejected.
+  const canEdit = session?.role !== 'tenant_user'
   const [branding, setBranding] = useState<Branding | null>(null)
   const [logo, setLogo] = useState<File | null>(null)
   const [header, setHeader] = useState<File | null>(null)
@@ -72,20 +81,23 @@ function BrandingSection() {
           </span>
         </div>
       )}
+      {!canEdit && <p className="muted">Only a Super Admin can change branding — contact yours to update these.</p>}
       <form onSubmit={onSave}>
-        <div className="field"><label>Replace logo</label><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setLogo(e.target.files?.[0] ?? null)} /></div>
-        <div className="field"><label>Replace header</label><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setHeader(e.target.files?.[0] ?? null)} /></div>
-        <div className="field"><label>Replace footer</label><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setFooter(e.target.files?.[0] ?? null)} /></div>
-        <div className="field"><label>Footer text</label><textarea rows={3} value={footerText} onChange={(e) => setFooterText(e.target.value)} /></div>
+        <div className="field"><label>Replace logo</label><input type="file" accept="image/png,image/jpeg,image/webp" disabled={!canEdit} onChange={(e) => setLogo(e.target.files?.[0] ?? null)} /></div>
+        <div className="field"><label>Replace header</label><input type="file" accept="image/png,image/jpeg,image/webp" disabled={!canEdit} onChange={(e) => setHeader(e.target.files?.[0] ?? null)} /></div>
+        <div className="field"><label>Replace footer</label><input type="file" accept="image/png,image/jpeg,image/webp" disabled={!canEdit} onChange={(e) => setFooter(e.target.files?.[0] ?? null)} /></div>
+        <div className="field"><label>Footer text</label><textarea rows={3} value={footerText} disabled={!canEdit} onChange={(e) => setFooterText(e.target.value)} /></div>
         {error && <p className="error-text">{error}</p>}
         {message && <p className="muted">{message}</p>}
-        <button className="btn amber" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
+        <button className="btn amber" type="submit" disabled={saving || !canEdit}>{saving ? 'Saving…' : 'Save changes'}</button>
       </form>
     </div>
   )
 }
 
 function TenantUsersSection() {
+  const { session } = useAuth()
+  const canManage = session?.role !== 'tenant_user'
   const [users, setUsers] = useState<TenantUser[]>([])
   const [showForm, setShowForm] = useState(false)
   const [fullName, setFullName] = useState('')
@@ -119,10 +131,10 @@ function TenantUsersSection() {
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Team</h2>
-        <button className="btn" onClick={() => setShowForm((s) => !s)}>{showForm ? 'Cancel' : '+ Add staff member'}</button>
+        {canManage && <button className="btn" onClick={() => setShowForm((s) => !s)}>{showForm ? 'Cancel' : '+ Add staff member'}</button>}
       </div>
       <p className="muted">Staff can create documents but can't change branding, billing settings, or the device-lock on your own Super Admin login.</p>
-      {showForm && (
+      {showForm && canManage && (
         <form onSubmit={onCreate} style={{ marginBottom: 16 }}>
           <div className="field"><label>Full name</label><input required value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
           <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
@@ -139,7 +151,7 @@ function TenantUsersSection() {
             <tr key={u.id}>
               <td>{u.full_name}</td><td>{u.email}</td>
               <td>{u.is_active ? <span className="badge online">Active</span> : <span className="badge offline">Inactive</span>}</td>
-              <td><button className="btn secondary" onClick={() => toggle(u)}>{u.is_active ? 'Deactivate' : 'Reactivate'}</button></td>
+              <td>{canManage && <button className="btn secondary" onClick={() => toggle(u)}>{u.is_active ? 'Deactivate' : 'Reactivate'}</button>}</td>
             </tr>
           ))}
           {users.length === 0 && <tr><td colSpan={4} className="muted">No staff accounts yet.</td></tr>}

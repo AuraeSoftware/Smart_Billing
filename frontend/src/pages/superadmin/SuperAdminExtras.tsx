@@ -554,27 +554,112 @@ interface TenantAnalyticsForReports {
   last_30_days_revenue: number
 }
 
+// SB06 — date-filtered report rows + a real CSV export, additive alongside
+// the all-time stats already fetched above (unchanged).
+interface ReportRow { date: string; doc_type: string; number: string; customer_name: string; status: string; amount: number }
+interface TenantReportOut {
+  from_date: string | null; to_date: string | null
+  invoice_count: number; quotation_count: number; receipt_count: number
+  revenue_collected: number; outstanding_receivables: number
+  rows: ReportRow[]
+}
+
 export function TenantReportsPage() {
   const [stats, setStats] = useState<TenantAnalyticsForReports | null>(null)
   useEffect(() => { apiFetch<TenantAnalyticsForReports>('/analytics/tenant').then(setStats).catch(() => {}) }, [])
 
+  // Date range defaults to the last 30 days so the page opens with something
+  // useful, same window as the "Last 30 days" KPI already on this page —
+  // either end can be cleared/widened at will.
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10)
+  })
+  const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [report, setReport] = useState<TenantReportOut | null>(null)
+  const [loadingReport, setLoadingReport] = useState(true)
+
+  useEffect(() => {
+    setLoadingReport(true)
+    const params = new URLSearchParams()
+    if (fromDate) params.set('from_date', fromDate)
+    if (toDate) params.set('to_date', toDate)
+    apiFetch<TenantReportOut>(`/analytics/tenant/report?${params.toString()}`)
+      .then(setReport)
+      .catch(() => setReport(null))
+      .finally(() => setLoadingReport(false))
+  }, [fromDate, toDate])
+
+  function exportCsv() {
+    if (!report || report.rows.length === 0) return
+    const headers = ['Date', 'Type', 'Number', 'Customer', 'Status', 'Amount']
+    const csvRows = report.rows.map((r) => [r.date, r.doc_type, r.number, r.customer_name, r.status, r.amount.toFixed(2)])
+    const csv = [headers, ...csvRows].map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `report_${fromDate || 'all'}_to_${toDate || 'all'}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (!stats) return <DashboardCard title="Reports"><p className="muted">Loading…</p></DashboardCard>
 
   return (
-    <DashboardCard
-      title="Reports"
-      subtitle="Your revenue and document activity at a glance."
-      action={<button className="btn secondary" onClick={() => window.print()}>⬇ Export / Print</button>}
-    >
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 16 }}>
-        <div><div className="muted">Revenue collected</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.revenue_collected.toLocaleString()}</div></div>
-        <div><div className="muted">Last 30 days</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.last_30_days_revenue.toLocaleString()}</div></div>
-        <div><div className="muted">Outstanding receivables</div><div style={{ fontSize: 20, fontWeight: 800, color: 'var(--amber)' }}>{stats.outstanding_receivables.toLocaleString()}</div></div>
-        <div><div className="muted">Overdue invoices</div><div style={{ fontSize: 20, fontWeight: 800, color: 'var(--red)' }}>{stats.overdue_invoice_count}</div></div>
-        <div><div className="muted">Total invoices</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.invoice_count}</div></div>
-        <div><div className="muted">Total quotations</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.quotation_count}</div></div>
-        <div><div className="muted">Total receipts</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.receipt_count}</div></div>
-      </div>
-    </DashboardCard>
+    <div style={{ display: 'grid', gap: 20 }}>
+      <DashboardCard title="Reports" subtitle="Your revenue and document activity at a glance (all time).">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 16 }}>
+          <div><div className="muted">Revenue collected</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.revenue_collected.toLocaleString()}</div></div>
+          <div><div className="muted">Last 30 days</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.last_30_days_revenue.toLocaleString()}</div></div>
+          <div><div className="muted">Outstanding receivables</div><div style={{ fontSize: 20, fontWeight: 800, color: 'var(--amber)' }}>{stats.outstanding_receivables.toLocaleString()}</div></div>
+          <div><div className="muted">Overdue invoices</div><div style={{ fontSize: 20, fontWeight: 800, color: 'var(--red)' }}>{stats.overdue_invoice_count}</div></div>
+          <div><div className="muted">Total invoices</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.invoice_count}</div></div>
+          <div><div className="muted">Total quotations</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.quotation_count}</div></div>
+          <div><div className="muted">Total receipts</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.receipt_count}</div></div>
+        </div>
+      </DashboardCard>
+
+      <DashboardCard
+        title="Date-range report"
+        subtitle="Filter activity by date and export the exact rows below as a CSV."
+        action={<button className="btn secondary" onClick={exportCsv} disabled={!report || report.rows.length === 0}>⬇ Export (CSV)</button>}
+      >
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+          <div className="field" style={{ minWidth: 160 }}><label>From</label><input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></div>
+          <div className="field" style={{ minWidth: 160 }}><label>To</label><input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></div>
+        </div>
+
+        {loadingReport ? <p className="muted">Loading…</p> : !report || report.rows.length === 0 ? (
+          <EmptyState title="No activity in this range" sub="Try widening the date range." />
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 16, marginBottom: 16 }}>
+              <div><div className="muted">Revenue in range</div><div style={{ fontSize: 18, fontWeight: 800 }}>{report.revenue_collected.toLocaleString()}</div></div>
+              <div><div className="muted">Outstanding (as of range)</div><div style={{ fontSize: 18, fontWeight: 800, color: 'var(--amber)' }}>{report.outstanding_receivables.toLocaleString()}</div></div>
+              <div><div className="muted">Invoices</div><div style={{ fontSize: 18, fontWeight: 800 }}>{report.invoice_count}</div></div>
+              <div><div className="muted">Quotations</div><div style={{ fontSize: 18, fontWeight: 800 }}>{report.quotation_count}</div></div>
+              <div><div className="muted">Receipts</div><div style={{ fontSize: 18, fontWeight: 800 }}>{report.receipt_count}</div></div>
+            </div>
+            <div className="table-scroll">
+              <table>
+                <thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Customer</th><th>Status</th><th>Amount</th></tr></thead>
+                <tbody>
+                  {report.rows.map((r) => (
+                    <tr key={`${r.doc_type}-${r.number}`}>
+                      <td>{r.date}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{r.doc_type}</td>
+                      <td style={{ fontWeight: 700 }}>{r.number}</td>
+                      <td>{r.customer_name}</td>
+                      <td style={{ textTransform: 'capitalize' }}>{r.status.replaceAll('_', ' ')}</td>
+                      <td>{r.amount.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </DashboardCard>
+    </div>
   )
 }

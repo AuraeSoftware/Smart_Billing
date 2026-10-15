@@ -34,6 +34,15 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'settings', label: 'Settings', icon: 'settings' },
 ]
 
+// SB09: 'team', 'catalog', and 'gst-manager' call endpoints the backend
+// already restricts to the Super Admin role (require_super_admin in
+// catalog.py, gst.py, users.py) — a Team member (tenant_user) could still
+// see these tabs and would just hit a 403 on every action. Nothing server
+// side changes; this only keeps the nav from offering tabs that role can't
+// use. All other tabs call require_tenant_staff and stay available to both
+// roles, unchanged.
+const SUPER_ADMIN_ONLY_KEYS = new Set(['team', 'catalog', 'gst-manager'])
+
 interface LineItem { description: string; quantity: number; unit_price: number; tax_rate_percent: number; discount_percent: number }
 
 interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string; due_date?: string | null; notes?: string | null }
@@ -53,6 +62,11 @@ export default function SuperAdminDashboard() {
   // Invoices tab opens with the create-invoice form already expanded.
   const [openInvoiceForm, setOpenInvoiceForm] = useState(false)
 
+  const navItems = useMemo(
+    () => session?.role === 'tenant_user' ? NAV_ITEMS.filter((item) => !SUPER_ADMIN_ONLY_KEYS.has(item.key)) : NAV_ITEMS,
+    [session?.role],
+  )
+
   useEffect(() => {
     // Pull the full document history into the offline cache on load, then
     // periodically while online (SOW 3.5).
@@ -63,7 +77,7 @@ export default function SuperAdminDashboard() {
 
   return (
     <AppLayout
-      navItems={NAV_ITEMS}
+      navItems={navItems}
       activeKey={tab}
       onNavigate={(key) => setTab(key as typeof tab)}
       topbarExtra={<SyncStatusBadge />}
@@ -387,6 +401,67 @@ function useDocList<T>(docType: DocType) {
   return { items, loading, reload }
 }
 
+// SB03: a single place to get the tenant's billing currency (Tenant.currency
+// on the backend) for formatting amounts consistently in these list tables —
+// previously some tables used .toLocaleString() and others showed the bare
+// number (e.g. "190.8" instead of "190.80"), with no currency shown at all.
+function useTenantCurrency(): string {
+  const [currency, setCurrency] = useState('')
+  useEffect(() => {
+    apiFetch<{ currency: string }>('/account/my-plan').then((p) => setCurrency(p.currency)).catch(() => {})
+  }, [])
+  return currency
+}
+
+function money(amount: number | string, currency: string): string {
+  return `${currency ? currency + ' ' : ''}${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+// SB04 — searchable select-or-create customer field, shared by the invoice
+// and quotation forms. Backed by a <datalist> so typing filters existing
+// customers as-you-type (native browser behavior); picking one fills
+// customer_id + email automatically, and typing a name that doesn't match
+// leaves customer_id unset so the backend finds-or-creates one by name, same
+// as before this feature existed — nothing about the plain customer_name
+// text field's required-ness or shape changes.
+interface CustomerOption { id: string; name: string; email: string | null }
+
+function useCustomerDirectory() {
+  const [customers, setCustomers] = useState<CustomerOption[]>([])
+  useEffect(() => { apiFetch<CustomerOption[]>('/customers').then(setCustomers).catch(() => {}) }, [])
+  return customers
+}
+
+function CustomerField({
+  datalistId, customers, name, onNameChange, onCustomerSelected,
+}: {
+  datalistId: string
+  customers: CustomerOption[]
+  name: string
+  onNameChange: (name: string) => void
+  onCustomerSelected: (customer: CustomerOption | null) => void
+}) {
+  return (
+    <div className="field">
+      <label>Customer name</label>
+      <input
+        list={datalistId}
+        value={name}
+        required
+        onChange={(e) => {
+          const value = e.target.value
+          onNameChange(value)
+          const match = customers.find((c) => c.name.toLowerCase() === value.trim().toLowerCase())
+          onCustomerSelected(match || null)
+        }}
+      />
+      <datalist id={datalistId}>
+        {customers.map((c) => <option key={c.id} value={c.name} />)}
+      </datalist>
+    </div>
+  )
+}
+
 async function downloadPdf(path: string, filename: string) {
   const blob = await apiFetch<Blob>(path)
   const url = URL.createObjectURL(blob)
@@ -397,12 +472,42 @@ async function downloadPdf(path: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+// SB05: catalog items already exist as full CRUD (Catalog tab) but were
+// never wired into the invoice/quotation editor — a Super Admin had to
+// retype description/price/tax by hand every time even for a saved item.
+interface CatalogItemOption { id: string; name: string; description: string | null; unit: string | null; default_unit_price: number; default_tax_rate_percent: number; is_active: boolean }
+
 function LineItemsEditor({ items, setItems }: { items: LineItem[]; setItems: (i: LineItem[]) => void }) {
+  const [catalog, setCatalog] = useState<CatalogItemOption[]>([])
+  useEffect(() => { apiFetch<CatalogItemOption[]>('/catalog').then((rows) => setCatalog(rows.filter((r) => r.is_active))).catch(() => {}) }, [])
+
   function update(i: number, patch: Partial<LineItem>) {
     setItems(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)))
   }
+
+  function addFromCatalog(id: string) {
+    const item = catalog.find((c) => c.id === id)
+    if (!item) return
+    setItems([
+      ...items,
+      {
+        description: item.unit ? `${item.name} (${item.unit})` : item.name,
+        quantity: 1, unit_price: item.default_unit_price, tax_rate_percent: item.default_tax_rate_percent, discount_percent: 0,
+      },
+    ])
+  }
+
   return (
     <div>
+      {catalog.length > 0 && (
+        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <label style={{ margin: 0, fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>Add from catalog</label>
+          <select value="" onChange={(e) => { if (e.target.value) addFromCatalog(e.target.value) }} style={{ maxWidth: 280 }}>
+            <option value="">Select a saved item…</option>
+            {catalog.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.default_unit_price.toLocaleString()}</option>)}
+          </select>
+        </div>
+      )}
       {/* Column header — hidden on phone widths where item-row stacks to one
           column (see index.css); each input carries its own placeholder
           there instead, so meaning survives the stack. */}
@@ -412,10 +517,15 @@ function LineItemsEditor({ items, setItems }: { items: LineItem[]; setItems: (i:
       {items.map((it, i) => (
         <div className="item-row" key={i}>
           <input placeholder="Item description" value={it.description} onChange={(e) => update(i, { description: e.target.value })} required />
-          <input type="number" step="0.01" placeholder="Qty" value={it.quantity} onChange={(e) => update(i, { quantity: Number(e.target.value) })} />
-          <input type="number" step="0.01" placeholder="Unit price" value={it.unit_price} onChange={(e) => update(i, { unit_price: Number(e.target.value) })} />
-          <input type="number" step="0.01" placeholder="Tax %" value={it.tax_rate_percent} onChange={(e) => update(i, { tax_rate_percent: Number(e.target.value) })} />
-          <input type="number" step="0.01" placeholder="Disc %" value={it.discount_percent} onChange={(e) => update(i, { discount_percent: Number(e.target.value) })} />
+          {/* SB01: bounds matching the backend's LineItemIn validation
+              (schemas/billing.py) — quantity > 0, price >= 0, tax/discount
+              0-100% — so the browser's own number-input affordance (spinner
+              clamping, red outline on out-of-range) catches the mistake
+              before the request round-trips to the server's 422. */}
+          <input type="number" step="0.01" min={0.01} placeholder="Qty" value={it.quantity} onChange={(e) => update(i, { quantity: Number(e.target.value) })} />
+          <input type="number" step="0.01" min={0} placeholder="Unit price" value={it.unit_price} onChange={(e) => update(i, { unit_price: Number(e.target.value) })} />
+          <input type="number" step="0.01" min={0} max={100} placeholder="Tax %" value={it.tax_rate_percent} onChange={(e) => update(i, { tax_rate_percent: Number(e.target.value) })} />
+          <input type="number" step="0.01" min={0} max={100} placeholder="Disc %" value={it.discount_percent} onChange={(e) => update(i, { discount_percent: Number(e.target.value) })} />
           <button type="button" className="btn secondary" onClick={() => setItems(items.filter((_, idx) => idx !== i))}>✕ Remove</button>
         </div>
       ))}
@@ -425,9 +535,12 @@ function LineItemsEditor({ items, setItems }: { items: LineItem[]; setItems: (i:
 }
 
 function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; onAutoOpenHandled?: () => void }) {
+  const currency = useTenantCurrency()
+  const customers = useCustomerDirectory()
   const { items, loading, reload } = useDocList<InvoiceRow>('invoices')
   const [showForm, setShowForm] = useState(false)
   const [customerName, setCustomerName] = useState('')
+  const [customerId, setCustomerId] = useState<string | null>(null)
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10))
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
@@ -444,7 +557,7 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
 
   async function onCreate() {
     setError(null)
-    const payload = { customer_name: customerName, issue_date: issueDate, due_date: dueDate || null, notes: notes || null, items: items2 }
+    const payload = { customer_name: customerName, customer_id: customerId || undefined, issue_date: issueDate, due_date: dueDate || null, notes: notes || null, items: items2 }
     try {
       if (isOnline()) {
         await apiFetch('/invoices', { method: 'POST', body: JSON.stringify(payload) })
@@ -452,7 +565,7 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
         await queueOfflineCreate('invoices', payload)
       }
       setShowForm(false)
-      setCustomerName(''); setItems2([emptyItem()]); setNotes('')
+      setCustomerName(''); setCustomerId(null); setItems2([emptyItem()]); setNotes('')
       reload()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create invoice.')
@@ -467,7 +580,13 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
       </div>
       {showForm && (
         <div style={{ marginTop: 12, marginBottom: 20 }}>
-          <div className="field"><label>Customer name</label><input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required /></div>
+          <CustomerField
+            datalistId="invoice-customers"
+            customers={customers}
+            name={customerName}
+            onNameChange={setCustomerName}
+            onCustomerSelected={(c) => setCustomerId(c?.id || null)}
+          />
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Issue date</label><input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
             <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Due date</label><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
@@ -493,7 +612,7 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
                 <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{inv.notes || <span className="muted">—</span>}</td>
                 <td>{inv.issue_date}</td><td>{inv.due_date || <span className="muted">—</span>}</td>
                 <td><StatusChip status={inv.status} /></td>
-                <td>{inv.grand_total}</td><td>{inv.amount_paid}</td>
+                <td>{money(inv.grand_total, currency)}</td><td>{money(inv.amount_paid, currency)}</td>
                 <td>
                   <div className="icon-btn-row">
                     <IconButton icon="download" title="Download PDF" onClick={() => downloadPdf(`/invoices/${inv.id}/pdf`, `${inv.number}.pdf`)} />
@@ -543,9 +662,12 @@ function InvoiceStatusActions({ invoice, onChanged }: { invoice: InvoiceRow; onC
 }
 
 function QuotationsPanel() {
+  const currency = useTenantCurrency()
+  const customers = useCustomerDirectory()
   const { items, loading, reload } = useDocList<QuotationRow>('quotations')
   const [showForm, setShowForm] = useState(false)
   const [customerName, setCustomerName] = useState('')
+  const [customerId, setCustomerId] = useState<string | null>(null)
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10))
   const [validUntil, setValidUntil] = useState('')
   const [notes, setNotes] = useState('')
@@ -554,7 +676,7 @@ function QuotationsPanel() {
 
   async function onCreate() {
     setError(null)
-    const payload = { customer_name: customerName, issue_date: issueDate, valid_until: validUntil || null, notes: notes || null, items: items2 }
+    const payload = { customer_name: customerName, customer_id: customerId || undefined, issue_date: issueDate, valid_until: validUntil || null, notes: notes || null, items: items2 }
     try {
       if (isOnline()) {
         await apiFetch('/quotations', { method: 'POST', body: JSON.stringify(payload) })
@@ -562,7 +684,7 @@ function QuotationsPanel() {
         await queueOfflineCreate('quotations', payload)
       }
       setShowForm(false)
-      setCustomerName(''); setItems2([emptyItem()]); setNotes('')
+      setCustomerName(''); setCustomerId(null); setItems2([emptyItem()]); setNotes('')
       reload()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create quotation.')
@@ -582,7 +704,13 @@ function QuotationsPanel() {
       </div>
       {showForm && (
         <div style={{ marginTop: 12, marginBottom: 20 }}>
-          <div className="field"><label>Customer name</label><input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required /></div>
+          <CustomerField
+            datalistId="quotation-customers"
+            customers={customers}
+            name={customerName}
+            onNameChange={setCustomerName}
+            onCustomerSelected={(c) => setCustomerId(c?.id || null)}
+          />
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Issue date</label><input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
             <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Valid until</label><input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></div>
@@ -607,7 +735,7 @@ function QuotationsPanel() {
                 <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{q.notes || <span className="muted">—</span>}</td>
                 <td>{q.issue_date}</td><td>{q.valid_until || <span className="muted">—</span>}</td>
                 <td><StatusChip status={q.status} /></td>
-                <td>{q.grand_total}</td>
+                <td>{money(q.grand_total, currency)}</td>
                 <td>
                   <div className="icon-btn-row">
                     <IconButton icon="download" title="Download PDF" onClick={() => downloadPdf(`/quotations/${q.id}/pdf`, `${q.number}.pdf`)} />
@@ -655,6 +783,7 @@ function QuotationStatusActions({ quotation, onChanged }: { quotation: Quotation
 }
 
 function ReceiptsPanel() {
+  const currency = useTenantCurrency()
   const { items: invoices } = useDocList<InvoiceRow>('invoices')
   const { items, loading, reload } = useDocList<ReceiptRow>('receipts')
   const [showForm, setShowForm] = useState(false)
@@ -668,9 +797,16 @@ function ReceiptsPanel() {
 
   async function onCreate() {
     setError(null)
+    // SB02: is_partial was always sent as false, so the PDF's "Payment
+    // received (full)" wording was wrong on every genuinely partial
+    // payment. Computed here from the selected invoice's own remaining
+    // balance (grand_total - amount_paid, before this receipt) instead.
+    const selectedInvoice = invoices.find((inv) => inv.id === invoiceId)
+    const remainingBefore = selectedInvoice ? Number(selectedInvoice.grand_total) - Number(selectedInvoice.amount_paid) : 0
+    const isPartial = !!selectedInvoice && amount < remainingBefore
     const payload = {
       invoice_id: invoiceId, amount, received_at: receivedAt, payment_method: method,
-      payment_reference: reference || undefined, notes: notes || undefined, is_partial: false,
+      payment_reference: reference || undefined, notes: notes || undefined, is_partial: isPartial,
     }
     try {
       if (isOnline()) {
@@ -697,7 +833,7 @@ function ReceiptsPanel() {
             <label>Invoice</label>
             <select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)} required>
               <option value="">Select invoice…</option>
-              {invoices.map((inv) => <option key={inv.id} value={inv.id}>{inv.number} — {inv.customer_name} ({inv.grand_total})</option>)}
+              {invoices.map((inv) => <option key={inv.id} value={inv.id}>{inv.number} — {inv.customer_name} ({money(inv.grand_total, currency)})</option>)}
             </select>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
@@ -736,7 +872,7 @@ function ReceiptsPanel() {
               <tr key={r.id}>
                 <td>{r.number}</td>
                 <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{r.notes || <span className="muted">—</span>}</td>
-                <td>{r.amount}</td>
+                <td>{money(r.amount, currency)}</td>
                 <td>{r.payment_method || <span className="muted">—</span>}</td>
                 <td>{r.payment_reference || <span className="muted">—</span>}</td>
                 <td>{r.received_at}</td>

@@ -17,6 +17,7 @@ from app.schemas.billing import InvoiceCreate, InvoiceOut
 from app.services.numbering import next_document_number
 from app.services.pdf import render_document_pdf
 from app.services.usage import invoices_this_month
+from app.api.v1.endpoints.customers import find_or_create_customer
 
 router = APIRouter()
 
@@ -67,9 +68,19 @@ def create_invoice(
             )
 
     number = next_document_number(db, tenant_id=uuid.UUID(tenant_id), doc_type="invoice", on=payload.issue_date)
+    # SB04: customer_name/email stay exactly as entered (unchanged
+    # requirement, unchanged PDF behavior) — this just also links a real
+    # Customer record: an explicit customer_id from the picker's "select
+    # existing" path is trusted as-is, otherwise one is found-or-created by
+    # name so repeat customers don't duplicate.
+    if payload.customer_id:
+        customer_id_value = payload.customer_id
+    else:
+        customer_id_value = find_or_create_customer(db, tenant_id, payload.customer_name, payload.customer_email).id
     invoice = Invoice(
         tenant_id=tenant_id, number=number, customer_name=payload.customer_name,
         customer_email=payload.customer_email, customer_address=payload.customer_address,
+        customer_id=customer_id_value,
         issue_date=payload.issue_date, due_date=payload.due_date, notes=payload.notes,
         created_by=user.id,
     )
@@ -143,16 +154,23 @@ def invoice_pdf(
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one()
     branding = db.query(TenantBranding).filter(TenantBranding.tenant_id == tenant_id).one_or_none()
 
+    # SB03: every amount on the PDF now carries the tenant's own billing
+    # currency (Tenant.currency) and a fixed 2-decimal format, instead of
+    # bare numbers that silently dropped trailing zeros (e.g. "190.8").
+    cur = tenant.currency
     pdf_bytes = render_document_pdf(
         doc_type="INVOICE", number=invoice.number, tenant_name=tenant.name, branding=branding,
         customer_name=invoice.customer_name, issue_date=invoice.issue_date.isoformat(),
         meta_lines=[f"Due: {invoice.due_date.isoformat()}"] if invoice.due_date else [],
-        line_items=[{"description": i.description, "quantity": i.quantity, "unit_price": i.unit_price, "line_total": i.line_total} for i in invoice.items],
+        line_items=[
+            {"description": i.description, "quantity": i.quantity, "unit_price": f"{cur} {float(i.unit_price):,.2f}", "line_total": f"{cur} {float(i.line_total):,.2f}"}
+            for i in invoice.items
+        ],
         totals=[
-            ("Subtotal", f"{invoice.subtotal:,.2f}"),
-            ("Discount", f"-{invoice.discount_total:,.2f}"),
-            ("Tax", f"{invoice.tax_total:,.2f}"),
-            ("Total", f"{invoice.grand_total:,.2f}"),
+            ("Subtotal", f"{cur} {invoice.subtotal:,.2f}"),
+            ("Discount", f"-{cur} {invoice.discount_total:,.2f}"),
+            ("Tax", f"{cur} {invoice.tax_total:,.2f}"),
+            ("Total", f"{cur} {invoice.grand_total:,.2f}"),
         ],
     )
     return Response(content=pdf_bytes, media_type="application/pdf", headers={

@@ -17,6 +17,7 @@ from app.services.numbering import next_document_number
 from app.services.pdf import render_document_pdf
 from app.services.usage import invoices_this_month
 from app.api.v1.endpoints.invoices import _compute_totals
+from app.api.v1.endpoints.customers import find_or_create_customer
 
 router = APIRouter()
 
@@ -51,9 +52,16 @@ def create_quotation(
     tenant_id: str = Depends(require_active_tenant),
 ):
     number = next_document_number(db, tenant_id=uuid.UUID(tenant_id), doc_type="quotation", on=payload.issue_date)
+    # SB04: same explicit-id-or-find-or-create-by-name link as invoices.py;
+    # customer_name/email are untouched.
+    if payload.customer_id:
+        customer_id_value = payload.customer_id
+    else:
+        customer_id_value = find_or_create_customer(db, tenant_id, payload.customer_name, payload.customer_email).id
     quotation = Quotation(
         tenant_id=tenant_id, number=number, customer_name=payload.customer_name,
-        customer_email=payload.customer_email, issue_date=payload.issue_date,
+        customer_email=payload.customer_email, customer_id=customer_id_value,
+        issue_date=payload.issue_date,
         valid_until=payload.valid_until, notes=payload.notes, created_by=user.id,
     )
     quotation.items = [QuotationItem(**item.model_dump()) for item in payload.items]
@@ -103,7 +111,8 @@ def convert_to_invoice(
     number = next_document_number(db, tenant_id=uuid.UUID(tenant_id), doc_type="invoice", on=quotation.issue_date)
     invoice = Invoice(
         tenant_id=tenant_id, number=number, customer_name=quotation.customer_name,
-        customer_email=quotation.customer_email, issue_date=quotation.issue_date,
+        customer_email=quotation.customer_email, customer_id=quotation.customer_id,
+        issue_date=quotation.issue_date,
         source_quotation_id=quotation.id, created_by=user.id,
         notes=f"Converted from quotation {quotation.number}.",
     )
@@ -162,16 +171,21 @@ def quotation_pdf(
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one()
     branding = db.query(TenantBranding).filter(TenantBranding.tenant_id == tenant_id).one_or_none()
 
+    # SB03: same tenant-currency + fixed 2-decimal formatting as invoices.
+    cur = tenant.currency
     pdf_bytes = render_document_pdf(
         doc_type="QUOTATION", number=quotation.number, tenant_name=tenant.name, branding=branding,
         customer_name=quotation.customer_name, issue_date=quotation.issue_date.isoformat(),
         meta_lines=[f"Valid until: {quotation.valid_until.isoformat()}"] if quotation.valid_until else [],
-        line_items=[{"description": i.description, "quantity": i.quantity, "unit_price": i.unit_price, "line_total": i.line_total} for i in quotation.items],
+        line_items=[
+            {"description": i.description, "quantity": i.quantity, "unit_price": f"{cur} {float(i.unit_price):,.2f}", "line_total": f"{cur} {float(i.line_total):,.2f}"}
+            for i in quotation.items
+        ],
         totals=[
-            ("Subtotal", f"{quotation.subtotal:,.2f}"),
-            ("Discount", f"-{quotation.discount_total:,.2f}"),
-            ("Tax", f"{quotation.tax_total:,.2f}"),
-            ("Total", f"{quotation.grand_total:,.2f}"),
+            ("Subtotal", f"{cur} {quotation.subtotal:,.2f}"),
+            ("Discount", f"-{cur} {quotation.discount_total:,.2f}"),
+            ("Tax", f"{cur} {quotation.tax_total:,.2f}"),
+            ("Total", f"{cur} {quotation.grand_total:,.2f}"),
         ],
     )
     return Response(content=pdf_bytes, media_type="application/pdf", headers={

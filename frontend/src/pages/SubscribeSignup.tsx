@@ -370,8 +370,16 @@ export default function SubscribeSignup() {
             required minLength={8} autoComplete="new-password"
           />
           {error && <p className="error-text">{error}</p>}
+          {/* SB11: this always said "Continue to branding" even when the
+              chosen plan is paid, which actually navigates to the payment
+              step first (see onSubmit above) — label now matches where
+              submitting will actually take them. */}
           <button className="btn" type="submit" disabled={loading || plans.length === 0} style={{ width: '100%' }}>
-            {loading ? 'Creating…' : 'Continue to branding'}
+            {loading
+              ? 'Creating…'
+              : plans.find((p) => p.id === form.subscription_plan_id)?.is_trial === false
+                ? 'Continue to payment'
+                : 'Continue to branding'}
           </button>
       </form>
     </AuthSplitShell>

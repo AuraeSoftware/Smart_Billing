@@ -7,10 +7,16 @@ from pydantic import BaseModel, Field
 
 class LineItemIn(BaseModel):
     description: str
-    quantity: float = 1
-    unit_price: float = 0
-    tax_rate_percent: float = 0
-    discount_percent: float = 0
+    # SB01: bounds that match what a line item can actually mean — a
+    # quantity of 0 or less, a negative price, or a discount/tax outside
+    # 0-100% were previously accepted and silently produced nonsense totals
+    # (or a negative grand_total). Enforced here so both the invoice and
+    # quotation creation paths (which share this schema) get the same
+    # guard without duplicating it.
+    quantity: float = Field(default=1, gt=0)
+    unit_price: float = Field(default=0, ge=0)
+    tax_rate_percent: float = Field(default=0, ge=0, le=100)
+    discount_percent: float = Field(default=0, ge=0, le=100)
 
 
 class LineItemOut(LineItemIn):
@@ -25,6 +31,11 @@ class InvoiceCreate(BaseModel):
     customer_name: str
     customer_email: Optional[str] = None
     customer_address: Optional[str] = None
+    # SB04: optional — when the picker's "select existing" path is used the
+    # frontend can send this id directly; when omitted (every existing call
+    # site), the backend finds-or-creates a Customer by customer_name as
+    # before. Purely additive, defaults to no behavior change.
+    customer_id: Optional[UUID] = None
     issue_date: date
     due_date: Optional[date] = None
     notes: Optional[str] = None
@@ -44,6 +55,7 @@ class InvoiceOut(BaseModel):
     discount_total: float
     grand_total: float
     amount_paid: float
+    customer_id: Optional[UUID] = None
     # The purpose/description captured at creation (InvoiceCreate.notes) was
     # already stored on the model but never returned — the list table and
     # detail view had no way to show it. Purely additive: no existing field
@@ -59,6 +71,8 @@ class InvoiceOut(BaseModel):
 class QuotationCreate(BaseModel):
     customer_name: str
     customer_email: Optional[str] = None
+    # SB04: same optional explicit-customer override as InvoiceCreate.
+    customer_id: Optional[UUID] = None
     issue_date: date
     valid_until: Optional[date] = None
     notes: Optional[str] = None
@@ -78,6 +92,7 @@ class QuotationOut(BaseModel):
     tax_total: float
     discount_total: float
     grand_total: float
+    customer_id: Optional[UUID] = None
     # Same addition as InvoiceOut.notes — already captured at creation,
     # never surfaced back out.
     notes: Optional[str] = None
