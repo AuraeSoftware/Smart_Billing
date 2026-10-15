@@ -19,8 +19,24 @@ class LineItemIn(BaseModel):
     discount_percent: float = Field(default=0, ge=0, le=100)
 
 
-class LineItemOut(LineItemIn):
+class LineItemOut(BaseModel):
+    # Deliberately NOT a subclass of LineItemIn. LineItemIn's gt=0 / ge=0 /
+    # le=100 bounds are input validation, for a line item being entered
+    # right now. Applied to output as well (as subclassing did before this
+    # fix), they re-validate every existing line item on the way out of the
+    # API too, which fails response serialization for any invoice or
+    # quotation saved before these bounds existed, including the invoice
+    # used to demonstrate the original out-of-range bug. That one bad
+    # record was enough to 500 the whole /invoices (or /quotations) list
+    # for the tenant, which read as the Invoices page going blank. Reading
+    # back a stored amount is not the same claim as accepting a new one, so
+    # this schema has no bounds at all.
     id: UUID
+    description: str
+    quantity: float
+    unit_price: float
+    tax_rate_percent: float
+    discount_percent: float
     line_total: float
 
     class Config:
