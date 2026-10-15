@@ -86,6 +86,14 @@ export default function SupremeAdminDashboard() {
     'subscription-plans' | 'currency-config' | 'subscription-history' |
     'payment-settings' | 'credentials'
   >('overview')
+  // SB07: lets "Needs attention → See all" land the Super Admins tab
+  // directly on the combined pending+suspended view instead of the
+  // Active & Suspended default, which was hiding pending tenants.
+  const [superAdminsInitialView, setSuperAdminsInitialView] = useState<'All' | 'Pending' | 'Attention'>('All')
+  // Bumped on every "See all" click so SuperAdminsPage remounts (picking up
+  // initialView again) even if the Super Admin had since switched tabs
+  // inside that page and the target view string hasn't changed.
+  const [superAdminsViewNonce, setSuperAdminsViewNonce] = useState(0)
   const [tenants, setTenants] = useState<TenantRow[]>([])
   const [events, setEvents] = useState<DeviceEventRow[]>([])
   const [unackOnly, setUnackOnly] = useState(true)
@@ -141,7 +149,14 @@ export default function SupremeAdminDashboard() {
       brandSuffix="Supreme Admin"
       navItems={NAV_ITEMS}
       activeKey={tab}
-      onNavigate={(key) => setTab(key as typeof tab)}
+      onNavigate={(key) => {
+        // Clicking "Super Admins" directly in the nav (as opposed to
+        // arriving via "Needs attention → See all") should land on the
+        // plain default, not whatever view a previous "See all" click left
+        // queued up.
+        if (key === 'super-admins') { setSuperAdminsInitialView('All'); setSuperAdminsViewNonce((n) => n + 1) }
+        setTab(key as typeof tab)
+      }}
       topbarExtra={unacknowledgedCount > 0 ? <span className="status-chip status-chip-red">{unacknowledgedCount} unread alert{unacknowledgedCount === 1 ? '' : 's'}</span> : undefined}
     >
       {tab === 'overview' && (
@@ -150,7 +165,7 @@ export default function SupremeAdminDashboard() {
           tenants={tenants}
           tenantRevenue={tenantRevenue}
           revenueTrend={revenueTrend}
-          onSelectTenants={() => setTab('super-admins')}
+          onSelectTenants={() => { setSuperAdminsInitialView('Attention'); setSuperAdminsViewNonce((n) => n + 1); setTab('super-admins') }}
         />
       )}
 
@@ -200,7 +215,7 @@ export default function SupremeAdminDashboard() {
       )}
 
       {tab === 'reports' && <ReportsPage />}
-      {tab === 'super-admins' && <SuperAdminsPage />}
+      {tab === 'super-admins' && <SuperAdminsPage key={superAdminsViewNonce} initialView={superAdminsInitialView} />}
       {tab === 'subscription-plans' && <SubscriptionPlansPage />}
       {tab === 'currency-config' && <CurrencyConfigPage />}
       {tab === 'subscription-history' && <SubscriptionHistoryPage />}

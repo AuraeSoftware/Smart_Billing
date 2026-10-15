@@ -66,11 +66,19 @@ interface PlanRow {
   tenant_count: number
 }
 
-export function SuperAdminsPage() {
+// SB07 — the Supreme Admin dashboard's "Needs attention → See all" link used
+// to land here with no filter applied, which defaulted to 'All'. 'All' here
+// has always meant "Active & Suspended" (its filter explicitly excludes
+// pending_onboarding — see `displayed` below), so a tenant stuck in pending
+// onboarding — the exact thing "Needs attention" is calling out — was
+// invisible unless the Super Admin happened to also click "Pending
+// Onboarding". initialView lets a caller land directly on the combined
+// pending+suspended view instead of requiring that extra click.
+export function SuperAdminsPage({ initialView }: { initialView?: 'All' | 'Pending' | 'Attention' } = {}) {
   const [rows, setRows] = useState<SuperAdminRow[]>([])
   const [plans, setPlans] = useState<PlanRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<'All' | 'Pending'>('All')
+  const [view, setView] = useState<'All' | 'Pending' | 'Attention'>(initialView || 'All')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [editing, setEditing] = useState<SuperAdminRow | null>(null)
   const [editForm, setEditForm] = useState({ full_name: '', email: '', new_password: '' })
@@ -97,7 +105,11 @@ export function SuperAdminsPage() {
   const activeCount = rows.filter((r) => !r.is_suspended).length
   const suspendedCount = rows.filter((r) => r.is_suspended).length
   const pending = rows.filter((r) => r.tenant_status === 'pending_onboarding')
-  const displayed = view === 'Pending' ? pending : rows.filter((r) => r.tenant_status !== 'pending_onboarding')
+  const needsAttention = rows.filter((r) => r.tenant_status === 'pending_onboarding' || r.is_suspended)
+  const displayed =
+    view === 'Pending' ? pending :
+    view === 'Attention' ? needsAttention :
+    rows.filter((r) => r.tenant_status !== 'pending_onboarding')
 
   async function toggleSuspend(r: SuperAdminRow) {
     await apiFetch(`/admin/users/${r.id}/${r.is_suspended ? 'reactivate' : 'suspend'}`, { method: 'POST' })
@@ -172,10 +184,15 @@ export function SuperAdminsPage() {
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>Super Admins</h2>
           <p style={{ margin: '3px 0 0', fontSize: 13, color: 'var(--text-3)' }}>Manage every tenant's Super Admin account, plan, and credentials.</p>
         </div>
-        <div style={{ display: 'flex', background: 'var(--bg-3)', padding: 4, borderRadius: 10 }}>
+        <div style={{ display: 'flex', background: 'var(--bg-3)', padding: 4, borderRadius: 10, flexWrap: 'wrap' }}>
           <button className={view === 'All' ? 'btn' : 'btn ghost'} style={{ padding: '8px 16px' }} onClick={() => setView('All')}>Active &amp; Suspended</button>
           <button className={view === 'Pending' ? 'btn' : 'btn ghost'} style={{ padding: '8px 16px' }} onClick={() => setView('Pending')}>
             Pending Onboarding {pending.length > 0 && <span className="status-chip status-chip-red" style={{ marginLeft: 6 }}>{pending.length}</span>}
+          </button>
+          {/* SB07: surfaces the same pending+suspended set the dashboard's
+              "Needs attention" card counts, in one click instead of two. */}
+          <button className={view === 'Attention' ? 'btn' : 'btn ghost'} style={{ padding: '8px 16px' }} onClick={() => setView('Attention')}>
+            Needs Attention {needsAttention.length > 0 && <span className="status-chip status-chip-red" style={{ marginLeft: 6 }}>{needsAttention.length}</span>}
           </button>
         </div>
       </div>
@@ -183,7 +200,10 @@ export function SuperAdminsPage() {
       {loading ? (
         <p className="muted">Loading…</p>
       ) : displayed.length === 0 ? (
-        <EmptyState title={view === 'Pending' ? 'No pending onboarding' : 'No Super Admins found'} sub="They're created automatically when a tenant signs up." />
+        <EmptyState
+          title={view === 'Pending' ? 'No pending onboarding' : view === 'Attention' ? 'Nothing needs attention' : 'No Super Admins found'}
+          sub={view === 'Attention' ? 'No tenants are pending onboarding or suspended right now.' : "They're created automatically when a tenant signs up."}
+        />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(320px,1fr))', gap: 14 }}>
           {displayed.map((r) => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, ApiError } from '../../lib/api'
-import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, Icon, ICONS } from '../../components/DashboardUI'
+import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, DetailRow, Icon, ICONS } from '../../components/DashboardUI'
 
 /**
  * Tenant-facing equivalents of Smart Garage 360's Super Admin sidebar —
@@ -122,10 +122,18 @@ interface CustomerRow {
   last_activity: string | null
 }
 
-export function CustomersPage() {
+// SB04: "typing 'QA Cal' showed no customer suggestions, and clicking the
+// customer row did not open a detail or invoice-creation screen" — the
+// searchable suggestions were added to the invoice/quotation editor itself
+// (see CustomerField in SuperAdminDashboard.tsx); this closes the other
+// half by giving each row a real action: a detail panel (contact info,
+// invoice/quotation totals) and a one-click "New invoice" that jumps to the
+// Invoices tab with this customer pre-filled.
+export function CustomersPage({ onCreateInvoice }: { onCreateInvoice?: (customerName: string) => void } = {}) {
   const [rows, setRows] = useState<CustomerRow[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [detail, setDetail] = useState<CustomerRow | null>(null)
 
   useEffect(() => {
     apiFetch<CustomerRow[]>('/analytics/tenant/customers').then(setRows).finally(() => setLoading(false))
@@ -156,10 +164,10 @@ export function CustomersPage() {
         ) : (
           <div className="table-scroll">
           <table>
-            <thead><tr><th>Customer</th><th>Email</th><th>Invoices</th><th>Quotations</th><th>Billed</th><th>Paid</th><th>Last activity</th></tr></thead>
+            <thead><tr><th>Customer</th><th>Email</th><th>Invoices</th><th>Quotations</th><th>Billed</th><th>Paid</th><th>Last activity</th><th></th></tr></thead>
             <tbody>
               {filtered.map((r) => (
-                <tr key={r.name}>
+                <tr key={r.name} style={{ cursor: 'pointer' }} onClick={() => setDetail(r)}>
                   <td style={{ fontWeight: 700 }}>{r.name}</td>
                   <td className="muted">{r.email || '—'}</td>
                   <td>{r.invoice_count}</td>
@@ -167,6 +175,16 @@ export function CustomersPage() {
                   <td style={{ fontWeight: 700 }}>{r.total_billed.toLocaleString()}</td>
                   <td style={{ color: 'var(--green)' }}>{r.total_paid.toLocaleString()}</td>
                   <td className="muted">{r.last_activity ? new Date(r.last_activity).toLocaleDateString() : '—'}</td>
+                  <td>
+                    {onCreateInvoice && (
+                      <button
+                        className="btn secondary"
+                        onClick={(e) => { e.stopPropagation(); onCreateInvoice(r.name) }}
+                      >
+                        + New invoice
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -174,6 +192,29 @@ export function CustomersPage() {
           </div>
         )}
       </DashboardCard>
+
+      <Modal title={detail?.name || 'Customer'} open={!!detail} onClose={() => setDetail(null)} maxWidth={440}>
+        {detail && (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <DetailRow label="Email" value={detail.email || '—'} />
+            <DetailRow label="Invoices" value={detail.invoice_count} />
+            <DetailRow label="Quotations" value={detail.quotation_count} />
+            <DetailRow label="Total billed" value={detail.total_billed.toLocaleString()} />
+            <DetailRow label="Total paid" value={detail.total_paid.toLocaleString()} />
+            <DetailRow label="Outstanding" value={(detail.total_billed - detail.total_paid).toLocaleString()} strong />
+            <DetailRow label="Last activity" value={detail.last_activity ? new Date(detail.last_activity).toLocaleDateString() : '—'} />
+            {onCreateInvoice && (
+              <button
+                className="btn amber"
+                style={{ marginTop: 6 }}
+                onClick={() => { const name = detail.name; setDetail(null); onCreateInvoice(name) }}
+              >
+                + New invoice for {detail.name}
+              </button>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

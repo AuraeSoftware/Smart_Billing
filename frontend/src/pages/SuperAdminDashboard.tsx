@@ -61,6 +61,11 @@ export default function SuperAdminDashboard() {
   // equivalent of Smart Garage's "+ Assign Job" action bar button) so the
   // Invoices tab opens with the create-invoice form already expanded.
   const [openInvoiceForm, setOpenInvoiceForm] = useState(false)
+  // SB04: set by the Customers tab's "+ New invoice" action (row button or
+  // detail panel) so the Invoices tab opens with the create form expanded
+  // and this customer already filled in — the same auto-open channel the
+  // Overview quick action already uses, just also carrying a name.
+  const [prefillCustomerName, setPrefillCustomerName] = useState<string | null>(null)
 
   const navItems = useMemo(
     () => session?.role === 'tenant_user' ? NAV_ITEMS.filter((item) => !SUPER_ADMIN_ONLY_KEYS.has(item.key)) : NAV_ITEMS,
@@ -102,10 +107,19 @@ export default function SuperAdminDashboard() {
           onQuickNewInvoice={() => { setOpenInvoiceForm(true); setTab('invoices') }}
         />
       )}
-      {tab === 'invoices' && <InvoicesPanel autoOpen={openInvoiceForm} onAutoOpenHandled={() => setOpenInvoiceForm(false)} />}
+      {tab === 'invoices' && (
+        <InvoicesPanel
+          autoOpen={openInvoiceForm}
+          onAutoOpenHandled={() => setOpenInvoiceForm(false)}
+          prefillCustomerName={prefillCustomerName}
+          onPrefillHandled={() => setPrefillCustomerName(null)}
+        />
+      )}
       {tab === 'quotations' && <QuotationsPanel />}
       {tab === 'receipts' && <ReceiptsPanel />}
-      {tab === 'customers' && <CustomersPage />}
+      {tab === 'customers' && (
+        <CustomersPage onCreateInvoice={(name) => { setPrefillCustomerName(name); setOpenInvoiceForm(true); setTab('invoices') }} />
+      )}
       {tab === 'team' && <TeamPage />}
       {tab === 'catalog' && <CatalogPage />}
       {tab === 'reports' && <TenantReportsPage />}
@@ -534,7 +548,14 @@ function LineItemsEditor({ items, setItems }: { items: LineItem[]; setItems: (i:
   )
 }
 
-function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; onAutoOpenHandled?: () => void }) {
+function InvoicesPanel({
+  autoOpen, onAutoOpenHandled, prefillCustomerName, onPrefillHandled,
+}: {
+  autoOpen?: boolean
+  onAutoOpenHandled?: () => void
+  prefillCustomerName?: string | null
+  onPrefillHandled?: () => void
+}) {
   const currency = useTenantCurrency()
   const customers = useCustomerDirectory()
   const { items, loading, reload } = useDocList<InvoiceRow>('invoices')
@@ -554,6 +575,19 @@ function InvoicesPanel({ autoOpen, onAutoOpenHandled }: { autoOpen?: boolean; on
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpen])
+
+  // SB04: "+ New invoice" from the Customers page carries a name here —
+  // pre-fill it (and match it to a known customer_id once the directory has
+  // loaded) without touching plain manual entry, which still starts blank.
+  useEffect(() => {
+    if (prefillCustomerName) {
+      setCustomerName(prefillCustomerName)
+      const match = customers.find((c) => c.name.toLowerCase() === prefillCustomerName.trim().toLowerCase())
+      setCustomerId(match?.id || null)
+      onPrefillHandled?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillCustomerName, customers])
 
   async function onCreate() {
     setError(null)
