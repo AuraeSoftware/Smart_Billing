@@ -138,6 +138,7 @@ interface TenantAnalytics {
   outstanding_receivables: number
   revenue_collected: number
   overdue_invoice_count: number
+  overdue_amount: number
   last_30_days_revenue: number
 }
 
@@ -244,7 +245,11 @@ function OverviewPanel({ onNav, onQuickNewInvoice }: { onNav: (key: 'invoices' |
             <div>
               <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--red)', marginBottom: 2 }}>Overdue invoices need attention</div>
               <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
-                <strong style={{ color: 'var(--text)' }}>{stats.overdue_invoice_count} invoice{stats.overdue_invoice_count === 1 ? '' : 's'}</strong> past due, totalling toward your {stats.outstanding_receivables.toLocaleString()} in outstanding receivables.
+                {/* Stated as two separate figures on purpose: overdue_amount is
+                    the part of outstanding_receivables that's actually past due,
+                    not a number alongside it — "900 of 1,840.80", not "900 and
+                    1,840.80" read as unrelated totals. */}
+                <strong style={{ color: 'var(--text)' }}>{stats.overdue_invoice_count} invoice{stats.overdue_invoice_count === 1 ? '' : 's'}</strong> past due, worth <strong style={{ color: 'var(--text)' }}>{stats.overdue_amount.toLocaleString()}</strong> of your {stats.outstanding_receivables.toLocaleString()} total outstanding receivables.
               </div>
             </div>
           </div>

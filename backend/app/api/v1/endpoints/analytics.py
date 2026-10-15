@@ -293,6 +293,11 @@ class TenantAnalyticsOut(BaseModel):
     outstanding_receivables: float
     revenue_collected: float
     overdue_invoice_count: int
+    # The rupee amount behind overdue_invoice_count — a subset of
+    # outstanding_receivables, not a separate pool. Added so the Overview
+    # banner can state both figures plainly instead of leaving the reader to
+    # infer whether "past due" and "outstanding" are the same number.
+    overdue_amount: float
     last_30_days_revenue: float
 
 
@@ -319,6 +324,7 @@ def tenant_analytics(
     # DRAFT invoice hasn't been sent to anyone yet, so its due date doesn't
     # start counting against it until it's actually dispatched.
     overdue = sum(1 for i in invoices if i.is_overdue)
+    overdue_amount = sum(float(i.grand_total) - float(i.amount_paid) for i in invoices if i.is_overdue)
 
     thirty_days_ago = today - timedelta(days=30)
     recent_revenue = (
@@ -334,5 +340,6 @@ def tenant_analytics(
         outstanding_receivables=round(outstanding, 2),
         revenue_collected=float(revenue),
         overdue_invoice_count=overdue,
+        overdue_amount=round(overdue_amount, 2),
         last_30_days_revenue=float(recent_revenue),
     )
