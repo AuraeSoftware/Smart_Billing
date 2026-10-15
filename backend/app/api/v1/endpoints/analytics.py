@@ -74,8 +74,13 @@ def tenant_report(
     quotations = quo_q.all()
     receipts = rec_q.all()
 
+    # A draft hasn't been sent to the customer yet, so it isn't money owed
+    # to the business — same reasoning as Invoice.is_overdue excluding
+    # drafts. Matches the fix applied to /tenant's outstanding_receivables.
     outstanding = sum(
-        float(i.grand_total) - float(i.amount_paid) for i in invoices if i.status != InvoiceStatus.CANCELLED
+        float(i.grand_total) - float(i.amount_paid)
+        for i in invoices
+        if i.status not in (InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED)
     )
     revenue = sum(float(r.amount) for r in receipts)
 
@@ -299,7 +304,13 @@ def tenant_analytics(
 ):
     """Super Admin / tenant-staff view scoped to their own tenant."""
     invoices = db.query(Invoice).filter(Invoice.tenant_id == tenant_id).all()
-    outstanding = sum(float(i.grand_total) - float(i.amount_paid) for i in invoices if i.status not in (InvoiceStatus.CANCELLED,))
+    # A draft hasn't been sent to the customer, so it isn't a receivable yet
+    # — same reasoning behind Invoice.is_overdue excluding drafts.
+    outstanding = sum(
+        float(i.grand_total) - float(i.amount_paid)
+        for i in invoices
+        if i.status not in (InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED)
+    )
     revenue = db.query(func.coalesce(func.sum(Receipt.amount), 0)).filter(Receipt.tenant_id == tenant_id).scalar() or 0
 
     today = date.today()
