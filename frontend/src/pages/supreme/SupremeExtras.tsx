@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { apiFetch, ApiError } from '../../lib/api'
-import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, DetailRow, Icon, ICONS, readableAccent } from '../../components/DashboardUI'
+import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, DetailRow, Icon, IconButton, ICONS, readableAccent } from '../../components/DashboardUI'
 
 /**
  * Real backend-backed pages for the rest of Smart Garage 360's Supreme
@@ -572,11 +572,11 @@ export function SubscriptionPlansPage() {
                     {!p.is_active && <span className="status-chip status-chip-red" style={{ display: 'inline-block' }}>Inactive</span>}
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button className="btn ghost" style={{ padding: '6px 10px' }} onClick={() => openEdit(p)}>Edit</button>
+                <div className="icon-btn-row">
+                  <IconButton icon="edit" title="Edit plan" onClick={() => openEdit(p)} />
                   {p.is_active
-                    ? <button className="btn warn" style={{ padding: '6px 10px' }} onClick={() => deactivate(p.id)}>Deactivate</button>
-                    : <button className="btn warn" style={{ padding: '6px 10px' }} onClick={() => openDeleteConfirm(p)}>Delete</button>}
+                    ? <IconButton icon="xCircle" title="Deactivate plan" tone="red" onClick={() => deactivate(p.id)} />
+                    : <IconButton icon="trash" title="Delete plan permanently" tone="red" onClick={() => openDeleteConfirm(p)} />}
                 </div>
               </div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>

@@ -127,8 +127,12 @@ a { color: inherit; }
    LAYOUT — sidebar + topbar
 ══════════════════════════════════════════════════════════ */
 .app-shell {
-  min-height: 100vh;
+  /* Fixed to the viewport (not min-height) so the sidebar's sign-out
+     button is always on screen, never pushed below the fold by a long
+     nav list or a tall page — only main.content scrolls (below). */
+  height: 100vh;
   display: flex;
+  overflow: hidden;
   /* viewport-fit=cover (index.html) lets the themed background run under
      the notch/home-indicator on iOS; these keep actual content clear of
      them. env() is 0 on devices without a safe area, so this is a no-op
@@ -140,11 +144,16 @@ a { color: inherit; }
 .sidebar {
   width: 236px;
   flex-shrink: 0;
+  height: 100vh;
   background: var(--sidebar);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   padding: 20px 14px;
+  /* The sidebar itself never scrolls (profile card + Sign out always
+     stay put); if the nav list ever outgrows the space, only the nav
+     list below scrolls internally, not the whole pane. */
+  overflow: hidden;
 }
 
 .sidebar .brand {
@@ -177,6 +186,11 @@ a { color: inherit; }
   flex-direction: column;
   gap: 2px;
   flex: 1;
+  /* Internal scroll only if the item list genuinely can't fit — keeps the
+     footer (profile + Sign out) pinned below, always visible. min-height:0
+     is required for a flex child to shrink below its content height. */
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .sidebar nav button {
@@ -211,6 +225,8 @@ a { color: inherit; }
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* Never shrinks or scrolls away — this is what keeps Sign out visible. */
+  flex-shrink: 0;
 }
 .sidebar-profile { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .sidebar-avatar {
@@ -231,7 +247,7 @@ a { color: inherit; }
 }
 .sidebar-signout:hover { background: var(--red); color: #fff; }
 
-.main-area { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main-area { flex: 1; min-width: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
 .topbar {
   background: var(--bg-2);
@@ -241,6 +257,8 @@ a { color: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* Stays put while main.content scrolls under it. */
+  flex-shrink: 0;
 }
 
 .topbar .title { font-weight: 700; font-size: 15px; }
@@ -256,6 +274,9 @@ main.content {
   margin: 0 auto;
   padding: 28px 28px 60px;
   padding-bottom: calc(60px + env(safe-area-inset-bottom));
+  /* This is the one scrolling region — sidebar and topbar stay fixed. */
+  overflow-y: auto;
+  min-height: 0;
 }
 
 /* ══════════════════════════════════════════════════════════
