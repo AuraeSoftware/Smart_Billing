@@ -16,7 +16,7 @@
  * what actually fixes "the logo isn't clear" — no amount of upscaling
  * fixes text that's a few pixels tall at the sizes this renders at.
  */
-const ASPECT = { wide: 1678 / 589, stacked: 1326 / 1472 }
+const ASPECT = { wide: 8562 / 4500, stacked: 1 }
 
 export default function Brand({
   size = 40,
@@ -36,7 +36,7 @@ export default function Brand({
 }) {
   const height = size
   const width = Math.round(height * ASPECT[variant])
-  const imgStyle = { position: 'absolute' as const, inset: 0, width: '100%', height: '100%', display: 'block' }
+  const imgStyle = { position: 'absolute' as const, inset: 0, width: '100%', height: '100%', display: 'block', objectFit: 'contain' as const }
   if (theme) {
     return (
       <span style={{ display: 'inline-block', position: 'relative', width, height }}>
