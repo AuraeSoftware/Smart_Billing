@@ -397,6 +397,26 @@ export function SubscriptionPlansPage() {
   }
   useEffect(() => { load() }, [])
 
+  // The API still stores Monthly and Yearly as two separate plan rows —
+  // "Pro (Monthly)" / "Pro (Yearly)" — exactly as before, and each keeps
+  // its own independent Edit/Deactivate/Delete. This only changes how they
+  // are DISPLAYED: paired back up into one card per tier (same grouping
+  // SubscribeSignup.tsx already uses to build its Monthly/Yearly toggle),
+  // so a tier shows both prices at once like Smart Garage 360's reference
+  // layout, instead of two separate cards for the same plan.
+  interface TierGroup { tierName: string; monthly?: PlanRow; yearly?: PlanRow }
+  const tierGroups = useMemo<TierGroup[]>(() => {
+    const map = new Map<string, TierGroup>()
+    for (const p of plans) {
+      const tierName = p.name.replace(/\s*\((Monthly|Yearly)\)\s*$/i, '').trim()
+      const g = map.get(tierName) ?? { tierName }
+      if (p.billing_cycle === 'yearly') g.yearly = p
+      else g.monthly = p
+      map.set(tierName, g)
+    }
+    return Array.from(map.values())
+  }, [plans])
+
   function openAdd() { setForm(emptyPlanForm); setError(''); setShowAdd(true) }
   function openEdit(p: PlanRow) {
     setEditing(p)
@@ -558,45 +578,81 @@ export function SubscriptionPlansPage() {
         <EmptyState title="No subscription plans" sub="Click 'Add Plan' to create one." />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 16 }}>
-          {plans.map((p) => (
-            <DashboardCard key={p.id} style={{ borderTop: `4px solid ${p.color}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                <div>
-                  <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: 'var(--text)' }}>{p.name}</h3>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                    <span style={{ fontSize: 20, fontWeight: 900, color: readableAccent(p.color) }}>{p.currency} {p.price.toFixed(0)}</span>
-                    <span style={{ fontSize: 13, color: 'var(--text-3)' }}>/{p.billing_cycle}</span>
+          {tierGroups.map((g) => {
+            // Shared by convention across a tier's Monthly/Yearly rows (see
+            // scripts/seed_packages.py) — quotas and feature flags only
+            // ever differ by price/billing_cycle, so reading them off
+            // whichever variant exists is exactly what's already true, not
+            // a new assumption.
+            const primary = g.monthly ?? g.yearly!
+            const accent = readableAccent(primary.color)
+            return (
+              <DashboardCard key={g.tierName} style={{ borderTop: `4px solid ${primary.color}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                  <div>
+                    <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 800, color: 'var(--text)' }}>{g.tierName}</h3>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                      <span style={{ fontSize: 20, fontWeight: 900, color: accent }}>{primary.currency} {primary.price.toFixed(0)}</span>
+                      <span style={{ fontSize: 13, color: 'var(--text-3)' }}>/{primary.billing_cycle}</span>
+                    </div>
+                    {/* Both billing cycles shown together — same prices the
+                        two rows already hold, just displayed side by side
+                        instead of as two separate cards. */}
+                    {(g.monthly || g.yearly) && (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                        {g.monthly && (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-2)', background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 7, padding: '3px 8px' }}>
+                            {g.monthly.currency} {g.monthly.price.toFixed(0)}/mo{!g.monthly.is_active && ' · inactive'}
+                          </span>
+                        )}
+                        {g.yearly && (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-2)', background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 7, padding: '3px 8px' }}>
+                            {g.yearly.currency} {g.yearly.price.toFixed(0)}/yr{!g.yearly.is_active && ' · inactive'}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                      {primary.is_trial && <span className="status-chip status-chip-blue" style={{ display: 'inline-block' }}>Trial · 1 per company</span>}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                    {p.is_trial && <span className="status-chip status-chip-blue" style={{ display: 'inline-block' }}>Trial · 1 per company</span>}
-                    {!p.is_active && <span className="status-chip status-chip-red" style={{ display: 'inline-block' }}>Inactive</span>}
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', marginBottom: 8 }}>Included</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: 'var(--text-2)' }}>
+                    <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> {primary.max_users} users · {primary.max_invoices_per_month ?? 'Unlimited'} invoices/mo</div>
+                    <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> {primary.max_branches} branch{primary.max_branches === 1 ? '' : 'es'} · {primary.max_products ?? 'Unlimited'} products</div>
+                    {primary.is_trial && <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> {primary.trial_days}-day free trial</div>}
+                    <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> {(g.monthly?.tenant_count ?? 0) + (g.yearly?.tenant_count ?? 0)} tenant{(g.monthly?.tenant_count ?? 0) + (g.yearly?.tenant_count ?? 0) === 1 ? '' : 's'} on this plan</div>
+                    {primary.has_priority_support && <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> Priority support</div>}
+                    {primary.has_api_access && <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> API access</div>}
+                    {primary.has_advanced_reports && <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> Advanced reports</div>}
+                    {primary.has_multi_currency && <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> Multi-currency invoicing</div>}
+                    {primary.has_employee_management && <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> Employee management</div>}
+                    {primary.inventory_tier === 'included' && <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> Full inventory</div>}
+                    {primary.role_permissions_tier !== 'none' && <div><span style={{ color: accent, fontWeight: 800 }}>✓</span> Role permissions ({primary.role_permissions_tier})</div>}
                   </div>
                 </div>
-                <div className="icon-btn-row">
-                  <IconButton icon="edit" title="Edit plan" onClick={() => openEdit(p)} />
-                  {p.is_active
-                    ? <IconButton icon="xCircle" title="Deactivate plan" tone="red" onClick={() => deactivate(p.id)} />
-                    : <IconButton icon="trash" title="Delete plan permanently" tone="red" onClick={() => openDeleteConfirm(p)} />}
+                {/* Each billing-cycle row keeps its own independent
+                    Edit/Deactivate/Delete — grouping the display doesn't
+                    merge the underlying rows, so nothing about managing
+                    either one separately is lost. */}
+                <div style={{ borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {([['Monthly', g.monthly], ['Yearly', g.yearly]] as const).map(([label, row]) => row && (
+                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>{label}</span>
+                      <div className="icon-btn-row">
+                        <IconButton icon="edit" title={`Edit ${label.toLowerCase()} plan`} onClick={() => openEdit(row)} />
+                        {row.is_active
+                          ? <IconButton icon="xCircle" title={`Deactivate ${label.toLowerCase()} plan`} tone="red" onClick={() => deactivate(row.id)} />
+                          : <IconButton icon="trash" title={`Delete ${label.toLowerCase()} plan permanently`} tone="red" onClick={() => openDeleteConfirm(row)} />}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', marginBottom: 8 }}>Included</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: 'var(--text-2)' }}>
-                  <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> {p.max_users} users · {p.max_invoices_per_month ?? 'Unlimited'} invoices/mo</div>
-                  <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> {p.max_branches} branch{p.max_branches === 1 ? '' : 'es'} · {p.max_products ?? 'Unlimited'} products</div>
-                  {p.is_trial && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> {p.trial_days}-day free trial</div>}
-                  <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> {p.tenant_count} tenant{p.tenant_count === 1 ? '' : 's'} on this plan</div>
-                  {p.has_priority_support && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Priority support</div>}
-                  {p.has_api_access && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> API access</div>}
-                  {p.has_advanced_reports && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Advanced reports</div>}
-                  {p.has_multi_currency && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Multi-currency invoicing</div>}
-                  {p.has_employee_management && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Employee management</div>}
-                  {p.inventory_tier === 'included' && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Full inventory</div>}
-                  {p.role_permissions_tier !== 'none' && <div><span style={{ color: readableAccent(p.color), fontWeight: 800 }}>✓</span> Role permissions ({p.role_permissions_tier})</div>}
-                </div>
-              </div>
-            </DashboardCard>
-          ))}
+              </DashboardCard>
+            )
+          })}
         </div>
       )}
 
