@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.png'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'Smart Billing',
         short_name: 'SmartBilling',
@@ -16,7 +16,11 @@ export default defineConfig({
         theme_color: '#231F20',
         background_color: '#FFFFFF',
         display: 'standalone',
+        id: '/',
         start_url: '/',
+        scope: '/',
+        orientation: 'any',
+        categories: ['business', 'finance', 'productivity'],
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
@@ -33,6 +37,10 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
         navigateFallback: '/index.html',
+        // API calls and the service worker's own files must never be answered
+        // with the app shell.
+        navigateFallbackDenylist: [/^\/api\//],
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/api/'),

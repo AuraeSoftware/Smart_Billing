@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, ApiError } from '../../lib/api'
+import { downloadCsv } from '../../lib/csv'
 import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, DetailRow, Icon, ICONS } from '../../components/DashboardUI'
 
 /**
@@ -632,16 +633,20 @@ export function TenantReportsPage() {
 
   function exportCsv() {
     if (!report || report.rows.length === 0) return
-    const headers = ['Date', 'Type', 'Number', 'Customer', 'Status', 'Amount']
-    const csvRows = report.rows.map((r) => [r.date, r.doc_type, r.number, r.customer_name, r.status, r.amount.toFixed(2)])
-    const csv = [headers, ...csvRows].map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `report_${fromDate || 'all'}_to_${toDate || 'all'}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    downloadCsv(`report_${fromDate || 'all'}_to_${toDate || 'all'}.csv`, [
+      { title: 'Smart Billing - Date-range report', rows: [
+        ['Generated', new Date().toLocaleString()],
+        ['From', fromDate || 'Beginning'],
+        ['To', toDate || 'Today'],
+      ] },
+      { title: 'Summary for this range', headers: ['Metric', 'Value'], rows: [
+        ['Revenue collected', report.revenue_collected.toFixed(2)],
+        ['Outstanding receivables', report.outstanding_receivables.toFixed(2)],
+        ['Invoices', report.invoice_count], ['Quotations', report.quotation_count], ['Receipts', report.receipt_count],
+      ] },
+      { title: 'Documents', headers: ['Date', 'Type', 'Number', 'Customer', 'Status', 'Amount'],
+        rows: report.rows.map((r) => [r.date, r.doc_type, r.number, r.customer_name, r.status.replaceAll('_', ' '), r.amount.toFixed(2)]) },
+    ])
   }
 
   if (!stats) return <DashboardCard title="Reports"><p className="muted">Loading…</p></DashboardCard>

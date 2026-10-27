@@ -233,19 +233,35 @@ class TenantRevenueRow(BaseModel):
 
 
 @router.get("/platform/tenants", response_model=list[TenantRevenueRow])
-def platform_tenant_breakdown(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+def platform_tenant_breakdown(
+    year: int | None = None,
+    month: int | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_supreme_admin),
+):
     """Per-tenant revenue + document counts (Overview's leaderboard) plus
     plan/usage tracking (Reports and Super Admins pages) in one row, since
     both views are built from the same per-tenant sweep."""
+    # Optional year/month narrow the document counts and revenue to that
+    # period (used by the Overview's filtered CSV export); with neither set
+    # the figures are all-time, exactly as before.
+    def _in_period(query, column):
+        if year is not None:
+            query = query.filter(func.extract("year", column) == year)
+        if month is not None:
+            query = query.filter(func.extract("month", column) == month)
+        return query
+
     tenants = db.query(Tenant).order_by(Tenant.created_at.desc()).all()
     rows: list[TenantRevenueRow] = []
     for t in tenants:
         plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == t.subscription_plan_id).one_or_none() if t.subscription_plan_id else None
         usage = usage_snapshot(db, t.id, plan)
         revenue = (
-            db.query(func.coalesce(func.sum(Receipt.amount), 0))
-            .filter(Receipt.tenant_id == t.id)
-            .scalar() or 0
+            _in_period(
+                db.query(func.coalesce(func.sum(Receipt.amount), 0)).filter(Receipt.tenant_id == t.id),
+                Receipt.received_at,
+            ).scalar() or 0
         )
         rows.append(TenantRevenueRow(
             tenant_id=str(t.id),
@@ -254,9 +270,9 @@ def platform_tenant_breakdown(db: Session = Depends(get_db), _: User = Depends(r
             contact_email=t.contact_email,
             subscription_status=_status_value(t.subscription_status),
             created_at=t.created_at.isoformat(),
-            invoice_count=db.query(func.count(Invoice.id)).filter(Invoice.tenant_id == t.id).scalar() or 0,
-            quotation_count=db.query(func.count(Quotation.id)).filter(Quotation.tenant_id == t.id).scalar() or 0,
-            receipt_count=db.query(func.count(Receipt.id)).filter(Receipt.tenant_id == t.id).scalar() or 0,
+            invoice_count=_in_period(db.query(func.count(Invoice.id)).filter(Invoice.tenant_id == t.id), Invoice.issue_date).scalar() or 0,
+            quotation_count=_in_period(db.query(func.count(Quotation.id)).filter(Quotation.tenant_id == t.id), Quotation.issue_date).scalar() or 0,
+            receipt_count=_in_period(db.query(func.count(Receipt.id)).filter(Receipt.tenant_id == t.id), Receipt.received_at).scalar() or 0,
             revenue_collected=float(revenue),
             plan_name=plan.name if plan else None,
             **usage,

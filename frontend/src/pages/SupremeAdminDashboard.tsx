@@ -4,6 +4,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 import { apiFetch } from '../lib/api'
+import { downloadCsv } from '../lib/csv'
 import AppLayout, { type NavItem } from '../components/AppLayout'
 import {
   DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS,
@@ -288,6 +289,54 @@ function PlatformCommandCenter({
     window.print()
   }
 
+  // Detailed CSV for exactly the Year/Month the viewer has selected: the
+  // report header records the filters, then the platform summary, the
+  // monthly revenue rows in range, and one row per tenant with that
+  // period's documents and revenue (re-fetched with the same filter, so the
+  // tenant figures match the period rather than being all-time).
+  const [exporting, setExporting] = useState(false)
+  async function handleExportCsv() {
+    if (!stats) return
+    setExporting(true)
+    try {
+      const qs = new URLSearchParams()
+      if (selectedYear !== 'All') qs.set('year', selectedYear)
+      if (selectedMonth !== 'All') qs.set('month', selectedMonth)
+      const periodTenants = await apiFetch<TenantRevenueRow[]>(`/analytics/platform/tenants${qs.toString() ? `?${qs}` : ''}`)
+      const yearLabel = selectedYear === 'All' ? 'All years' : selectedYear
+      const monthLabel = selectedMonth === 'All' ? 'All months' : MONTHS[Number(selectedMonth) - 1]
+      const periodDocs = periodTenants.reduce(
+        (a, t) => ({ inv: a.inv + t.invoice_count, quo: a.quo + t.quotation_count, rec: a.rec + t.receipt_count }),
+        { inv: 0, quo: 0, rec: 0 },
+      )
+      downloadCsv(`platform_report_${selectedYear}_${selectedMonth}.csv`, [
+        { title: 'Smart Billing - Platform Report', rows: [
+          ['Generated', new Date().toLocaleString()],
+          ['Auditing year', yearLabel],
+          ['Auditing month', monthLabel],
+        ] },
+        { title: 'Platform summary (current)', headers: ['Metric', 'Value'], rows: [
+          ['Total tenants', stats.total_tenants], ['Active tenants', stats.active_tenants],
+          ['Pending onboarding', stats.pending_onboarding_tenants], ['Suspended tenants', stats.suspended_tenants],
+        ] },
+        { title: `Period totals (${monthLabel}, ${yearLabel})`, headers: ['Metric', 'Value'], rows: [
+          ['Revenue collected', periodRevenue.toFixed(2)], ['Invoices issued', periodDocs.inv],
+          ['Quotations issued', periodDocs.quo], ['Receipts', periodDocs.rec],
+        ] },
+        { title: 'Monthly revenue in range', headers: ['Month', 'Revenue'],
+          rows: filteredTrend.map((p) => [p.label, p.revenue.toFixed(2)]) },
+        { title: 'Tenant breakdown for the selected period',
+          headers: ['Tenant', 'Slug', 'Contact email', 'Status', 'Signed up', 'Invoices', 'Quotations', 'Receipts', 'Revenue collected'],
+          rows: [...periodTenants].sort((a, b) => b.revenue_collected - a.revenue_collected).map((t) => [
+            t.name, t.slug, t.contact_email, t.subscription_status.replaceAll('_', ' '),
+            t.created_at.slice(0, 10), t.invoice_count, t.quotation_count, t.receipt_count, t.revenue_collected.toFixed(2),
+          ]) },
+      ])
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (!stats) return <div className="card"><p className="muted">Loading platform overview…</p></div>
 
   return (
@@ -314,7 +363,8 @@ function PlatformCommandCenter({
                 {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
               </select>
             </div>
-            <button className="btn secondary" onClick={handlePrint}>⬇ Export PDF / Print</button>
+            <button className="btn" onClick={handleExportCsv} disabled={exporting}>{exporting ? 'Preparing…' : '⬇ Export CSV'}</button>
+            <button className="btn secondary" onClick={handlePrint}>Print / PDF</button>
           </div>
         </div>
       </DashboardCard>

@@ -4,6 +4,7 @@ import { apiFetch, ApiError } from '../lib/api'
 import { Modal, readableAccent } from '../components/DashboardUI'
 import AuthSplitShell from '../components/AuthSplitShell'
 import PasswordField from '../components/PasswordField'
+import { COUNTRIES } from '../lib/countries'
 
 interface PublicPlan {
   id: string
@@ -47,6 +48,12 @@ export default function SubscribeSignup() {
     super_admin_full_name: '', super_admin_email: '', super_admin_password: '',
     super_admin_mobile_number: '', subscription_plan_id: '',
   })
+  // The mobile number is a country picker plus the national digits; the two
+  // are joined into the same "+91 98765 43210" string the API already takes
+  // (form.super_admin_mobile_number), so nothing server-side changes.
+  const [countryIso, setCountryIso] = useState('IN')
+  const [nationalNumber, setNationalNumber] = useState('')
+  const country = COUNTRIES.find((c) => c.iso === countryIso) ?? COUNTRIES[0]
   const [plans, setPlans] = useState<PublicPlan[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
   // Monthly/Yearly is a single switch above the grid (standard SaaS pricing
@@ -55,8 +62,10 @@ export default function SubscribeSignup() {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly')
   const [previewTier, setPreviewTier] = useState<string | null>(null)
   const [currencies, setCurrencies] = useState<WorldCurrency[]>([])
-  const [currency, setCurrency] = useState('')
-  const [currencyTouched, setCurrencyTouched] = useState(false)
+  // Starts on the default country's currency, so plans load once, already
+  // priced for it. Picking a country sets its currency; the currency
+  // dropdown can still override that afterwards.
+  const [currency, setCurrency] = useState(COUNTRIES[0].currency)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
@@ -66,26 +75,30 @@ export default function SubscribeSignup() {
     apiFetch<WorldCurrency[]>('/subscription/currencies').then(setCurrencies).catch(() => setCurrencies([]))
   }, [])
 
-  // Plan prices, resolved into a currency: an explicit pick from the
-  // dropdown (currencyTouched) wins; otherwise the mobile number's country
-  // code auto-detects it server-side. Re-fetches whenever either changes.
+  // Keep the combined mobile string in step with the two inputs.
   useEffect(() => {
+    const digits = nationalNumber.trim()
+    setForm((f) => ({ ...f, super_admin_mobile_number: digits ? `+${country.dial} ${digits}` : '' }))
+  }, [country.dial, nationalNumber])
+
+  // Plan prices for the chosen currency. This only re-runs when the currency
+  // changes (country pick or the dropdown), never while typing a number, and
+  // the grid stays on screen while it refreshes instead of being swapped for
+  // a "Loading plans" line, which is what made the form jump on each key.
+  useEffect(() => {
+    let cancelled = false
     setPlansLoading(true)
-    const params = new URLSearchParams()
-    if (currencyTouched && currency) params.set('currency', currency)
-    else if (form.super_admin_mobile_number.trim()) params.set('mobile_number', form.super_admin_mobile_number.trim())
-    const qs = params.toString()
-    apiFetch<PublicPlan[]>(`/subscription/plans${qs ? `?${qs}` : ''}`)
+    apiFetch<PublicPlan[]>(`/subscription/plans?currency=${encodeURIComponent(currency)}`)
       .then((list) => {
+        if (cancelled) return
         setPlans(list)
         if (list.length > 0) {
           setForm((f) => ({ ...f, subscription_plan_id: f.subscription_plan_id || list[0].id }))
-          if (!currencyTouched) setCurrency(list[0].currency)
         }
       })
-      .finally(() => setPlansLoading(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currencyTouched, currency, form.super_admin_mobile_number])
+      .finally(() => { if (!cancelled) setPlansLoading(false) })
+    return () => { cancelled = true }
+  }, [currency])
 
   // The API returns each tier as two separate rows — "Starter (Monthly)"
   // and "Starter (Yearly)" — so pricing always has an exact plan to charge.
@@ -123,6 +136,20 @@ export default function SubscribeSignup() {
     const p = planFor(g, billingCycle)
     if (p) update('subscription_plan_id', p.id)
   }
+
+  // Flipping Monthly/Yearly re-points the selected tier at that cycle's
+  // plan row, so what is highlighted is what actually gets submitted.
+  useEffect(() => {
+    setForm((f) => {
+      const cur = plans.find((p) => p.id === f.subscription_plan_id)
+      if (!cur) return f
+      const tier = cur.name.replace(/\s*\((Monthly|Yearly)\)\s*$/i, '').trim()
+      const g = tierGroups.find((t) => t.tierName === tier)
+      const next = g ? planFor(g, billingCycle) : undefined
+      return next && next.id !== f.subscription_plan_id ? { ...f, subscription_plan_id: next.id } : f
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billingCycle, tierGroups])
 
   function update<K extends keyof typeof form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -195,11 +222,27 @@ export default function SubscribeSignup() {
             <input type="email" required value={form.contact_email} onChange={(e) => update('contact_email', e.target.value)} />
           </div>
           <div className="field">
-            <label>Mobile number (with country code)</label>
-            <input
-              required placeholder="+91 98765 43210" value={form.super_admin_mobile_number}
-              onChange={(e) => update('super_admin_mobile_number', e.target.value)}
-            />
+            <label>Mobile number</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <select
+                aria-label="Country code" value={countryIso}
+                onChange={(e) => {
+                  const next = COUNTRIES.find((c) => c.iso === e.target.value)
+                  setCountryIso(e.target.value)
+                  if (next) setCurrency(next.currency)
+                }}
+                style={{ width: 'auto', flex: '0 0 42%', minWidth: 0 }}
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c.iso} value={c.iso}>{c.name} (+{c.dial})</option>
+                ))}
+              </select>
+              <input
+                required type="tel" inputMode="numeric" autoComplete="tel-national"
+                placeholder="98765 43210" value={nationalNumber} style={{ minWidth: 0, flex: 1 }}
+                onChange={(e) => setNationalNumber(e.target.value.replace(/[^\d\s-]/g, ''))}
+              />
+            </div>
           </div>
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />
@@ -209,7 +252,7 @@ export default function SubscribeSignup() {
               <span style={{ fontSize: 12, color: 'var(--text-3)' }}>Currency</span>
               <select
                 value={currency}
-                onChange={(e) => { setCurrency(e.target.value); setCurrencyTouched(true) }}
+                onChange={(e) => setCurrency(e.target.value)}
                 style={{ width: 'auto', minWidth: 140 }}
               >
                 {currencies.map((c) => (
@@ -218,10 +261,8 @@ export default function SubscribeSignup() {
               </select>
             </label>
           </div>
-          {!currencyTouched && form.super_admin_mobile_number.trim() && (
-            <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Currency auto-detected from your mobile number — pick a different one above any time.</p>
-          )}
-          {plansLoading ? (
+          <p className="muted" style={{ fontSize: 12, marginTop: 0 }}>Showing {country.name} pricing in {currency}. Pick another country code or currency above any time.</p>
+          {plans.length === 0 && plansLoading ? (
             <p className="muted">Loading plans…</p>
           ) : plans.length === 0 ? (
             <p className="error-text">No subscription plans are available right now — please contact Aurae Software Solutions.</p>
@@ -235,7 +276,7 @@ export default function SubscribeSignup() {
                   </button>
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 16, opacity: plansLoading ? 0.6 : 1, transition: 'opacity .15s' }}>
                 {selfServeTiers.map((g) => {
                   const p = planFor(g, billingCycle)
                   if (!p) return null

@@ -131,6 +131,7 @@ a { color: inherit; }
      button is always on screen, never pushed below the fold by a long
      nav list or a tall page — only main.content scrolls (below). */
   height: 100vh;
+  height: 100dvh; /* excludes the collapsing mobile address bar */
   display: flex;
   overflow: hidden;
   /* viewport-fit=cover (index.html) lets the themed background run under
@@ -145,6 +146,7 @@ a { color: inherit; }
   width: 236px;
   flex-shrink: 0;
   height: 100vh;
+  height: 100dvh;
   background: var(--sidebar);
   border-right: 1px solid var(--border);
   display: flex;
@@ -247,7 +249,7 @@ a { color: inherit; }
 }
 .sidebar-signout:hover { background: var(--red); color: #fff; }
 
-.main-area { flex: 1; min-width: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.main-area { flex: 1; min-width: 0; height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 
 .topbar {
   background: var(--bg-2);
@@ -545,6 +547,7 @@ tbody tr:hover { background: var(--card-hover); }
 /* Auth / onboarding centered pages */
 .auth-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -565,6 +568,7 @@ tbody tr:hover { background: var(--card-hover); }
    narrower screens, same breakpoint the rest of the app uses. */
 .auth-split {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.15fr);
 }
@@ -622,9 +626,10 @@ tbody tr:hover { background: var(--card-hover); }
 .auth-split-card-brand { display: none; }
 
 @media (max-width: 860px) {
-  .auth-split { grid-template-columns: 1fr; }
+  .auth-split { grid-template-columns: minmax(0, 1fr); }
+  .auth-split-right { min-width: 0; }
   .auth-split-left { display: none; }
-  .auth-split-right { padding: 24px 16px; min-height: 100vh; }
+  .auth-split-right { padding: 24px 16px; min-height: 100vh; min-height: 100dvh; }
   /* The dark panel (and its logo) is hidden on narrow screens, so the
      form card carries its own centered brand lockup instead. */
   .auth-split-card-brand { display: flex; justify-content: center; margin-bottom: 20px; }
@@ -679,6 +684,16 @@ tbody tr:hover { background: var(--card-hover); }
   main.content { padding: 16px 14px 40px; }
   .card { padding: 16px; }
 }
+
+/* Touch devices: iOS Safari zooms the page when a focused field is under
+   16px, which reads as a jump on every form; 16px stops it. Taps also get
+   a 40px minimum target and no grey tap flash. */
+@media (max-width: 900px) {
+  .field input, .field textarea, .field select, input, select, textarea { font-size: 16px; }
+  .btn { min-height: 40px; }
+  button, a { -webkit-tap-highlight-color: transparent; }
+}
+html { -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; }
 
 /* Phone: collapse remaining multi-column layout patterns to one column and
    shrink type/spacing further. Grids built with inline

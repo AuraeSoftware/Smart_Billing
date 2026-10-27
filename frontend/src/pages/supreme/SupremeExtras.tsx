@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { apiFetch, ApiError } from '../../lib/api'
+import { downloadCsv } from '../../lib/csv'
 import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, DetailRow, Icon, IconButton, ICONS, readableAccent } from '../../components/DashboardUI'
 
 /**
@@ -915,16 +916,17 @@ export function SubscriptionHistoryPage() {
 
   function exportCsv() {
     if (filtered.length === 0) return
-    const headers = ['Date', 'Tenant', 'Event', 'Old value', 'New value', 'By']
-    const rows = filtered.map((e) => [e.created_at, e.tenant_name || '-', e.event_type, e.old_value || '-', e.new_value || '-', e.changed_by_label || 'system'])
-    const csv = [headers, ...rows].map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `subscription_history_${period.toLowerCase()}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+    const periodLabel = { All: 'All time', Day: 'Today', Month: 'This month', Year: 'This year' }[period]
+    downloadCsv(`subscription_history_${period.toLowerCase()}.csv`, [
+      { title: 'Smart Billing - Subscription history report', rows: [
+        ['Generated', new Date().toLocaleString()],
+        ['Period', periodLabel],
+        ['Search', search.trim() || 'None'],
+        ['Events in report', filtered.length],
+      ] },
+      { headers: ['Date', 'Tenant', 'Event', 'Old value', 'New value', 'By'],
+        rows: filtered.map((e) => [e.created_at, e.tenant_name || '-', e.event_type, e.old_value || '-', e.new_value || '-', e.changed_by_label || 'system']) },
+    ])
   }
 
   return (
@@ -1179,26 +1181,90 @@ export function ReportsPage() {
   const [rows, setRows] = useState<TenantUsageRow[]>([])
   useEffect(() => { apiFetch<TenantUsageRow[]>('/analytics/platform/tenants').then(setRows).catch(() => {}) }, [])
 
-  const atRisk = rows.filter((r) => r.warning_level === 'critical' || r.warning_level === 'limit_reached').length
-  const noPlan = rows.filter((r) => !r.plan_name).length
+  // Filters the viewer can set; the table, the counters and the CSV export
+  // all use the same filtered list, so the file matches what is on screen.
+  const [statusFilter, setStatusFilter] = useState('All')
+  const [planFilter, setPlanFilter] = useState('All')
+  const [usageFilter, setUsageFilter] = useState<'All' | 'at_risk' | 'no_plan'>('All')
+  const statusOptions = useMemo(() => [...new Set(rows.map((r) => r.subscription_status))].sort(), [rows])
+  const planOptions = useMemo(() => [...new Set(rows.map((r) => r.plan_name).filter((n): n is string => !!n))].sort(), [rows])
+  const shown = useMemo(() => rows.filter((r) => {
+    if (statusFilter !== 'All' && r.subscription_status !== statusFilter) return false
+    if (planFilter !== 'All' && r.plan_name !== planFilter) return false
+    if (usageFilter === 'at_risk' && !(r.warning_level === 'critical' || r.warning_level === 'limit_reached')) return false
+    if (usageFilter === 'no_plan' && r.plan_name) return false
+    return true
+  }), [rows, statusFilter, planFilter, usageFilter])
+
+  function exportCsv() {
+    if (shown.length === 0) return
+    downloadCsv(`tenant_plan_usage_${new Date().toISOString().slice(0, 10)}.csv`, [
+      { title: 'Smart Billing - Tenant plan and usage report', rows: [
+        ['Generated', new Date().toLocaleString()],
+        ['Status filter', statusFilter === 'All' ? 'All statuses' : statusFilter.replaceAll('_', ' ')],
+        ['Plan filter', planFilter === 'All' ? 'All plans' : planFilter],
+        ['Usage filter', usageFilter === 'at_risk' ? 'Near or at limit' : usageFilter === 'no_plan' ? 'Without a plan' : 'All tenants'],
+        ['Tenants in report', shown.length],
+      ] },
+      { headers: ['Tenant', 'Slug', 'Contact email', 'Status', 'Signed up', 'Plan', 'Invoices used', 'Invoice limit', 'Usage %', 'Warning', 'Days until reset'],
+        rows: shown.map((r) => [
+          r.name, r.slug, r.contact_email, r.subscription_status.replaceAll('_', ' '), r.created_at.slice(0, 10),
+          r.plan_name ?? 'No plan', r.invoices_used, r.invoices_limit ?? 'Unlimited',
+          r.invoices_limit ? r.usage_percent.toFixed(0) : '', r.warning_level.replaceAll('_', ' '),
+          r.invoices_limit ? r.days_until_reset : '',
+        ]) },
+    ])
+  }
+
+  const atRisk = shown.filter((r) => r.warning_level === 'critical' || r.warning_level === 'limit_reached').length
+  const noPlan = shown.filter((r) => !r.plan_name).length
 
   return (
     <DashboardCard
       title="Reports"
       subtitle="Which plan each Super Admin is on, and how close they are to its monthly invoice limit."
-      action={<button className="btn secondary" onClick={() => window.print()}>⬇ Export / Print</button>}
+      action={(
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={exportCsv} disabled={shown.length === 0}>⬇ Export CSV</button>
+          <button className="btn secondary" onClick={() => window.print()}>Print</button>
+        </div>
+      )}
     >
-      <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
-        <div><div className="muted">Tenants</div><div style={{ fontSize: 20, fontWeight: 800 }}>{rows.length}</div></div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div className="field" style={{ minWidth: 150, marginBottom: 0 }}>
+          <label>Status</label>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="All">All statuses</option>
+            {statusOptions.map((st) => <option key={st} value={st}>{st.replaceAll('_', ' ')}</option>)}
+          </select>
+        </div>
+        <div className="field" style={{ minWidth: 150, marginBottom: 0 }}>
+          <label>Plan</label>
+          <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}>
+            <option value="All">All plans</option>
+            {planOptions.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+        <div className="field" style={{ minWidth: 170, marginBottom: 0 }}>
+          <label>Usage</label>
+          <select value={usageFilter} onChange={(e) => setUsageFilter(e.target.value as typeof usageFilter)}>
+            <option value="All">All tenants</option>
+            <option value="at_risk">Near or at limit</option>
+            <option value="no_plan">Without a plan</option>
+          </select>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
+        <div><div className="muted">Tenants</div><div style={{ fontSize: 20, fontWeight: 800 }}>{shown.length}</div></div>
         <div><div className="muted">Near or at their limit</div><div style={{ fontSize: 20, fontWeight: 800, color: atRisk > 0 ? 'var(--red)' : 'var(--text)' }}>{atRisk}</div></div>
         <div><div className="muted">Without a plan</div><div style={{ fontSize: 20, fontWeight: 800, color: noPlan > 0 ? 'var(--amber)' : 'var(--text)' }}>{noPlan}</div></div>
       </div>
-      {rows.length === 0 ? <EmptyState title="No data yet" /> : (
+      {shown.length === 0 ? <EmptyState title="No data yet" sub={rows.length > 0 ? 'No tenants match these filters.' : undefined} /> : (
         <div className="table-scroll">
           <table>
           <thead><tr><th>Tenant</th><th>Status</th><th>Plan</th><th>Invoices this month</th><th>Renews in</th></tr></thead>
           <tbody>
-            {rows.map((r) => (
+            {shown.map((r) => (
               <tr key={r.tenant_id}>
                 <td style={{ fontWeight: 700 }}>{r.name}</td>
                 <td><StatusChip status={r.subscription_status} /></td>
