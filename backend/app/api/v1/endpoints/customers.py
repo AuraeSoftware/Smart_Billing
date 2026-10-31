@@ -82,6 +82,12 @@ def find_or_create_customer(db: Session, tenant_id: str, name: str, email: str |
     # customer.id immediately, before this session's commit.
     customer = Customer(id=uuid.uuid4(), tenant_id=uuid.UUID(tenant_id), name=name.strip(), email=email)
     db.add(customer)
+    # Invoice/Quotation.customer_id is a plain foreign-key column (no ORM
+    # relationship), so SQLAlchemy has no way to know the customer row must be
+    # inserted first. Flushing here guarantees it exists before the document
+    # that points at it — otherwise the very first document for a brand-new
+    # customer name fails with a foreign-key violation (HTTP 500).
+    db.flush()
     return customer
 
 

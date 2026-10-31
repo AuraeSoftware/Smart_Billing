@@ -8,7 +8,7 @@ import { getCached, isOnline, queueOfflineCreate, syncAll, type DocType } from '
 import { useAuth } from '../lib/auth'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import AppLayout, { type NavItem } from '../components/AppLayout'
-import { DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS, IconButton } from '../components/DashboardUI'
+import { DashboardCard, KpiCard, StatusChip, EmptyState, Icon, ICONS, CHART_COLORS, IconButton, Modal } from '../components/DashboardUI'
 import Settings from './Settings'
 import {
   MyPlanPage, TenantCredentialsPage, CustomersPage, TeamPage, CatalogPage,
@@ -45,7 +45,7 @@ const SUPER_ADMIN_ONLY_KEYS = new Set(['team', 'catalog', 'gst-manager'])
 
 interface LineItem { description: string; quantity: number; unit_price: number; tax_rate_percent: number; discount_percent: number }
 
-interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string; due_date?: string | null; notes?: string | null; is_overdue?: boolean }
+interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string; due_date?: string | null; notes?: string | null; is_overdue?: boolean; customer_id?: string | null; items?: LineItem[] }
 interface QuotationRow { id: string; number: string; customer_name: string; status: string; grand_total: number; issue_date: string; valid_until?: string | null; notes?: string | null }
 interface ReceiptRow { id: string; number: string; invoice_id: string; amount: number; payment_method?: string | null; payment_reference?: string | null; notes?: string | null; received_at: string }
 
@@ -572,6 +572,33 @@ function InvoicesPanel({
   const [notes, setNotes] = useState('')
   const [items2, setItems2] = useState<LineItem[]>([emptyItem()])
   const [error, setError] = useState<string | null>(null)
+  // Edit + payment actions: editingId switches the same form to "update"
+  // mode; payFor opens the fully/partially paid dialog.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [payFor, setPayFor] = useState<{ inv: InvoiceRow; mode: 'full' | 'partial' } | null>(null)
+  const [notice, setNotice] = useState<{ text: string; receiptId: string; receiptNumber: string } | null>(null)
+
+  function resetForm() {
+    setEditingId(null)
+    setCustomerName(''); setCustomerId(null); setItems2([emptyItem()]); setNotes(''); setDueDate('')
+    setIssueDate(new Date().toISOString().slice(0, 10))
+  }
+
+  function startEdit(inv: InvoiceRow) {
+    setError(null); setNotice(null)
+    setEditingId(inv.id)
+    setCustomerName(inv.customer_name)
+    setCustomerId(inv.customer_id || null)
+    setIssueDate(inv.issue_date)
+    setDueDate(inv.due_date || '')
+    setNotes(inv.notes || '')
+    setItems2((inv.items && inv.items.length ? inv.items : [emptyItem()]).map((it) => ({
+      description: it.description, quantity: it.quantity, unit_price: it.unit_price,
+      tax_rate_percent: it.tax_rate_percent, discount_percent: it.discount_percent,
+    })))
+    setShowForm(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   useEffect(() => {
     if (autoOpen) {
@@ -598,16 +625,19 @@ function InvoicesPanel({
     setError(null)
     const payload = { customer_name: customerName, customer_id: customerId || undefined, issue_date: issueDate, due_date: dueDate || null, notes: notes || null, items: items2 }
     try {
-      if (isOnline()) {
+      if (editingId) {
+        if (!isOnline()) { setError('You need to be online to edit an invoice.'); return }
+        await apiFetch(`/invoices/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) })
+      } else if (isOnline()) {
         await apiFetch('/invoices', { method: 'POST', body: JSON.stringify(payload) })
       } else {
         await queueOfflineCreate('invoices', payload)
       }
       setShowForm(false)
-      setCustomerName(''); setCustomerId(null); setItems2([emptyItem()]); setNotes('')
+      resetForm()
       reload()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not create invoice.')
+      setError(err instanceof ApiError ? err.message : editingId ? 'Could not update invoice.' : 'Could not create invoice.')
     }
   }
 
@@ -615,10 +645,18 @@ function InvoicesPanel({
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Invoices</h2>
-        <button className="btn" onClick={() => setShowForm((s) => !s)}>{showForm ? 'Cancel' : '+ New invoice'}</button>
+        <button className="btn" onClick={() => { if (showForm) resetForm(); setShowForm((s) => !s) }}>{showForm ? 'Cancel' : '+ New invoice'}</button>
       </div>
+      {notice && (
+        <div className="card" style={{ marginTop: 12, padding: '10px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ flex: 1, minWidth: 200 }}>{notice.text}</span>
+          <button className="btn" onClick={() => downloadPdf(`/receipts/${notice.receiptId}/pdf`, `${notice.receiptNumber}.pdf`)}>Download receipt</button>
+          <button className="btn" onClick={() => setNotice(null)}>Dismiss</button>
+        </div>
+      )}
       {showForm && (
         <div style={{ marginTop: 12, marginBottom: 20 }}>
+          {editingId && <p className="muted" style={{ marginBottom: 8 }}>Editing invoice {items.find((i) => i.id === editingId)?.number}</p>}
           <CustomerField
             datalistId="invoice-customers"
             customers={customers}
@@ -636,7 +674,7 @@ function InvoicesPanel({
           </div>
           <LineItemsEditor items={items2} setItems={setItems2} />
           {error && <p className="error-text">{error}</p>}
-          <button className="btn amber" style={{ marginTop: 10 }} onClick={onCreate}>Save invoice</button>
+          <button className="btn amber" style={{ marginTop: 10 }} onClick={onCreate}>{editingId ? 'Update invoice' : 'Save invoice'}</button>
           {!isOnline() && <p className="muted">You're offline — this will queue and sync automatically once you're back online.</p>}
         </div>
       )}
@@ -665,6 +703,13 @@ function InvoicesPanel({
                 <td>
                   <div className="icon-btn-row">
                     <IconButton icon="download" title="Download PDF" onClick={() => downloadPdf(`/invoices/${inv.id}/pdf`, `${inv.number}.pdf`)} />
+                    {inv.status !== 'paid' && inv.status !== 'cancelled' && (
+                      <>
+                        <IconButton icon="edit" title="Edit invoice" onClick={() => startEdit(inv)} />
+                        <IconButton icon="checkCircle" tone="green" title="Fully paid" onClick={() => setPayFor({ inv, mode: 'full' })} />
+                        <IconButton icon="card" tone="amber" title="Partially paid" onClick={() => setPayFor({ inv, mode: 'partial' })} />
+                      </>
+                    )}
                     <InvoiceStatusActions invoice={inv} onChanged={reload} />
                   </div>
                 </td>
@@ -674,7 +719,86 @@ function InvoicesPanel({
         </table>
           </div>
       )}
+      {payFor && (
+        <InvoicePaymentModal
+          invoice={payFor.inv}
+          mode={payFor.mode}
+          currency={currency}
+          onClose={() => setPayFor(null)}
+          onDone={(r) => {
+            setPayFor(null)
+            setNotice({
+              text: `Payment recorded. Receipt ${r.receipt.number} was generated for ${r.invoice.number} (${r.invoice.status.replace('_', ' ')}).`,
+              receiptId: r.receipt.id, receiptNumber: r.receipt.number,
+            })
+            reload()
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+function InvoicePaymentModal({
+  invoice, mode, currency, onClose, onDone,
+}: {
+  invoice: InvoiceRow
+  mode: 'full' | 'partial'
+  currency: string
+  onClose: () => void
+  onDone: (r: { invoice: { number: string; status: string }; receipt: { id: string; number: string } }) => void
+}) {
+  const remaining = Math.max(Math.round((Number(invoice.grand_total) - Number(invoice.amount_paid)) * 100) / 100, 0)
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState('')
+  const [reference, setReference] = useState('')
+  const [receivedAt, setReceivedAt] = useState(new Date().toISOString().slice(0, 10))
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function submit() {
+    setError(null)
+    if (mode === 'partial') {
+      const n = Number(amount)
+      if (!(n > 0) || n >= remaining) { setError(`Enter an amount above 0 and below the ${money(remaining, currency)} outstanding.`); return }
+    }
+    setBusy(true)
+    try {
+      const res = await apiFetch<{ invoice: { number: string; status: string }; receipt: { id: string; number: string } }>(
+        `/invoices/${invoice.id}/payment`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            mode, amount: mode === 'partial' ? Number(amount) : undefined,
+            payment_method: method || null, payment_reference: reference || null, received_at: receivedAt,
+          }),
+        },
+      )
+      onDone(res)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not record the payment.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={mode === 'full' ? `Fully paid · ${invoice.number}` : `Partially paid · ${invoice.number}`} open onClose={onClose}>
+      <p className="muted">Outstanding balance: <strong>{money(remaining, currency)}</strong>. A receipt is generated automatically.</p>
+      {mode === 'partial' ? (
+        <div className="field"><label>Amount received</label><input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+      ) : (
+        <div className="field"><label>Amount received</label><input value={money(remaining, currency)} readOnly /></div>
+      )}
+      <div className="field"><label>Payment method</label><input placeholder="e.g. Bank transfer, Cash, UPI" value={method} onChange={(e) => setMethod(e.target.value)} /></div>
+      <div className="field"><label>Reference (optional)</label><input value={reference} onChange={(e) => setReference(e.target.value)} /></div>
+      <div className="field"><label>Date received</label><input type="date" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} /></div>
+      {error && <p className="error-text">{error}</p>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button className="btn amber" disabled={busy} onClick={submit}>{busy ? 'Saving…' : 'Record payment'}</button>
+        <button className="btn" onClick={onClose}>Cancel</button>
+      </div>
+    </Modal>
   )
 }
 

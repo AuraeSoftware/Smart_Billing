@@ -15,6 +15,7 @@ from app.db.session import get_db
 from app.api.deps import require_super_admin, current_tenant_id
 from app.models.user import User
 from app.models.catalog import CatalogItem
+from app.services.usage import check_product_limit
 
 router = APIRouter()
 
@@ -72,6 +73,7 @@ def create_catalog_item(
     _: User = Depends(require_super_admin),
     tenant_id: str = Depends(current_tenant_id),
 ):
+    check_product_limit(db, tenant_id)
     item = CatalogItem(id=uuid.uuid4(), tenant_id=uuid.UUID(tenant_id), **payload.model_dump())
     db.add(item)
     db.commit()

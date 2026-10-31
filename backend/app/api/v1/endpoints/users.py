@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.api.deps import require_super_admin, current_tenant_id
 from app.core.security import hash_password
 from app.models.user import User, UserRole
+from app.services.usage import check_user_limit
 from app.schemas.user import TenantUserCreate, TenantUserOut
 
 router = APIRouter()
@@ -41,6 +42,7 @@ def create_tenant_user(
 ):
     if db.query(User).filter(User.email == payload.email).one_or_none():
         raise HTTPException(status.HTTP_409_CONFLICT, "That email is already registered.")
+    check_user_limit(db, tenant_id)
     user = User(
         tenant_id=tenant_id, email=payload.email, full_name=payload.full_name,
         hashed_password=hash_password(payload.password), role=UserRole.TENANT_USER,
@@ -81,6 +83,8 @@ def reactivate_tenant_user(
     ).one_or_none()
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant user not found.")
+    if not user.is_active:
+        check_user_limit(db, tenant_id)
     user.is_active = True
     db.add(user)
     db.commit()

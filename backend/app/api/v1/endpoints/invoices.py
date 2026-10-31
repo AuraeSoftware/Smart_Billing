@@ -13,11 +13,12 @@ from app.models.branding import TenantBranding
 from app.models.tenant import Tenant
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.user import User
-from app.schemas.billing import InvoiceCreate, InvoiceOut
+from app.schemas.billing import InvoiceCreate, InvoiceOut, InvoicePaymentIn, InvoicePaymentOut
 from app.services.numbering import next_document_number
 from app.services.pdf import render_document_pdf
 from app.services.usage import invoices_this_month
 from app.api.v1.endpoints.customers import find_or_create_customer
+from app.api.v1.endpoints.receipts import record_receipt
 
 router = APIRouter()
 
@@ -139,6 +140,93 @@ def update_invoice_status(
     db.commit()
     db.refresh(invoice)
     return invoice
+
+
+@router.put("/{invoice_id}", response_model=InvoiceOut)
+def update_invoice(
+    invoice_id: uuid.UUID,
+    payload: InvoiceCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_tenant_staff),
+    tenant_id: str = Depends(require_active_tenant),
+):
+    """Edit an invoice's details and line items. The number, status and
+    payments recorded so far are untouched; totals are recomputed. Paid and
+    cancelled invoices are locked."""
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.tenant_id == tenant_id).one_or_none()
+    if invoice is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found.")
+    if invoice.status in (InvoiceStatus.PAID, InvoiceStatus.CANCELLED):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"A {invoice.status.value} invoice can't be edited.")
+    if not payload.items:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "An invoice needs at least one line item.")
+
+    if payload.customer_id:
+        invoice.customer_id = payload.customer_id
+    elif payload.customer_name.strip().lower() != (invoice.customer_name or "").strip().lower():
+        invoice.customer_id = find_or_create_customer(db, tenant_id, payload.customer_name, payload.customer_email).id
+    invoice.customer_name = payload.customer_name
+    invoice.customer_email = payload.customer_email
+    invoice.customer_address = payload.customer_address
+    invoice.issue_date = payload.issue_date
+    invoice.due_date = payload.due_date
+    invoice.notes = payload.notes
+    invoice.items = [InvoiceItem(**item.model_dump()) for item in payload.items]
+    subtotal, tax, discount, grand = _compute_totals(invoice.items)
+    if grand < float(invoice.amount_paid):
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"The new total ({grand:,.2f}) can't be lower than the {float(invoice.amount_paid):,.2f} already received.",
+        )
+    invoice.subtotal, invoice.tax_total, invoice.discount_total, invoice.grand_total = subtotal, tax, discount, grand
+    db.add(invoice)
+    db.commit()
+    db.refresh(invoice)
+    return invoice
+
+
+@router.post("/{invoice_id}/payment", response_model=InvoicePaymentOut, status_code=status.HTTP_201_CREATED)
+def pay_invoice(
+    invoice_id: uuid.UUID,
+    payload: InvoicePaymentIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_tenant_staff),
+    tenant_id: str = Depends(require_active_tenant),
+):
+    """Mark an invoice fully or partially paid. A receipt for the amount is
+    generated automatically and the invoice status follows."""
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.tenant_id == tenant_id).one_or_none()
+    if invoice is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found.")
+    if invoice.status in (InvoiceStatus.PAID, InvoiceStatus.CANCELLED):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"A {invoice.status.value} invoice can't take a payment.")
+    remaining = round(float(invoice.grand_total) - float(invoice.amount_paid), 2)
+    if remaining <= 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This invoice has no balance outstanding.")
+
+    if payload.mode == "full":
+        amount = remaining
+    else:
+        if payload.amount is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Enter the amount received.")
+        if payload.amount >= remaining:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"A partial payment must be less than the {remaining:,.2f} outstanding. Use 'Fully paid' to settle it.",
+            )
+        amount = round(payload.amount, 2)
+
+    receipt = record_receipt(
+        db, tenant_id=tenant_id, user=user, invoice=invoice, amount=amount,
+        is_partial=payload.mode == "partial", payment_method=payload.payment_method,
+        payment_reference=payload.payment_reference, notes=payload.notes,
+        received_at=payload.received_at or date.today(),
+    )
+    db.commit()
+    db.refresh(invoice)
+    db.refresh(receipt)
+    return {"invoice": invoice, "receipt": receipt}
 
 
 @router.get("/{invoice_id}/pdf")

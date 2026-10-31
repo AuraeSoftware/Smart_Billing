@@ -125,6 +125,18 @@ class QuotationOut(BaseModel):
         from_attributes = True
 
 
+class InvoicePaymentIn(BaseModel):
+    """Mark an invoice fully or partially paid; a receipt is generated
+    automatically. For mode="full" the amount is the outstanding balance
+    (any amount sent is ignored)."""
+    mode: str = Field(pattern="^(full|partial)$")
+    amount: Optional[float] = Field(default=None, gt=0)
+    payment_method: Optional[str] = None
+    payment_reference: Optional[str] = None
+    notes: Optional[str] = None
+    received_at: Optional[date] = None
+
+
 class ReceiptCreate(BaseModel):
     invoice_id: UUID
     amount: float
@@ -149,3 +161,8 @@ class ReceiptOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class InvoicePaymentOut(BaseModel):
+    invoice: InvoiceOut
+    receipt: ReceiptOut

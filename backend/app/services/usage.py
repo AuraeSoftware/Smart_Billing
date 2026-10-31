@@ -64,3 +64,44 @@ def usage_snapshot(db: Session, tenant_id: uuid.UUID | str, plan: SubscriptionPl
         "days_until_reset": days_until_month_reset(),
         "warning_level": level,
     }
+
+
+def plan_for_tenant(db: Session, tenant_id) -> SubscriptionPlan | None:
+    from app.models.tenant import Tenant
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one_or_none()
+    if tenant is None or not tenant.subscription_plan_id:
+        return None
+    return db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none()
+
+
+def check_user_limit(db: Session, tenant_id) -> None:
+    """Raises 403 when adding one more active user would exceed the plan's
+    max_users (the Super Admin counts as a seat). No plan / no limit = open."""
+    from fastapi import HTTPException
+    from app.models.user import User
+    plan = plan_for_tenant(db, tenant_id)
+    if plan is None or plan.max_users is None:
+        return
+    active = db.query(User).filter(User.tenant_id == tenant_id, User.is_active.is_(True)).count()
+    if active >= plan.max_users:
+        raise HTTPException(
+            403,
+            f"User limit reached ({active}/{plan.max_users} on the {plan.name} plan). "
+            "Deactivate a user or contact Aurae Software Solutions to upgrade your plan.",
+        )
+
+
+def check_product_limit(db: Session, tenant_id) -> None:
+    """Raises 403 when saving one more catalog item would exceed max_products."""
+    from fastapi import HTTPException
+    from app.models.catalog import CatalogItem
+    plan = plan_for_tenant(db, tenant_id)
+    if plan is None or plan.max_products is None:
+        return
+    count = db.query(CatalogItem).filter(CatalogItem.tenant_id == uuid.UUID(str(tenant_id))).count()
+    if count >= plan.max_products:
+        raise HTTPException(
+            403,
+            f"Product limit reached ({count}/{plan.max_products} on the {plan.name} plan). "
+            "Remove an item or contact Aurae Software Solutions to upgrade your plan.",
+        )

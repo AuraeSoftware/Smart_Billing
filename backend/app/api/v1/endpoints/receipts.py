@@ -17,6 +17,27 @@ from app.services.pdf import render_document_pdf
 router = APIRouter()
 
 
+def record_receipt(db: Session, *, tenant_id: str, user: User, invoice: Invoice, amount: float,
+                   is_partial: bool, payment_method, payment_reference, notes, received_at) -> Receipt:
+    """Single place a payment is turned into a Receipt + updated invoice
+    status. Used by POST /receipts (unchanged behavior) and by the invoice
+    "fully paid / partially paid" actions so both produce identical records.
+    Does not commit; the caller does."""
+    number = next_document_number(db, tenant_id=uuid.UUID(str(tenant_id)), doc_type="receipt", on=received_at)
+    receipt = Receipt(
+        tenant_id=tenant_id, invoice_id=invoice.id, number=number, amount=amount,
+        is_partial=is_partial, payment_method=payment_method,
+        payment_reference=payment_reference, notes=notes,
+        received_at=received_at,
+        created_by=user.id,
+    )
+    invoice.amount_paid = float(invoice.amount_paid) + amount
+    invoice.status = InvoiceStatus.PAID if invoice.amount_paid >= float(invoice.grand_total) else InvoiceStatus.PARTIALLY_PAID
+    db.add(receipt)
+    db.add(invoice)
+    return receipt
+
+
 @router.post("", response_model=ReceiptOut, status_code=status.HTTP_201_CREATED)
 def create_receipt(
     payload: ReceiptCreate,
@@ -28,19 +49,12 @@ def create_receipt(
     if invoice is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found.")
 
-    number = next_document_number(db, tenant_id=uuid.UUID(tenant_id), doc_type="receipt", on=payload.received_at)
-    receipt = Receipt(
-        tenant_id=tenant_id, invoice_id=invoice.id, number=number, amount=payload.amount,
+    receipt = record_receipt(
+        db, tenant_id=tenant_id, user=user, invoice=invoice, amount=payload.amount,
         is_partial=payload.is_partial, payment_method=payload.payment_method,
         payment_reference=payload.payment_reference, notes=payload.notes,
         received_at=payload.received_at,
-        created_by=user.id,
     )
-    invoice.amount_paid = float(invoice.amount_paid) + payload.amount
-    invoice.status = InvoiceStatus.PAID if invoice.amount_paid >= float(invoice.grand_total) else InvoiceStatus.PARTIALLY_PAID
-
-    db.add(receipt)
-    db.add(invoice)
     db.commit()
     db.refresh(receipt)
     return receipt
