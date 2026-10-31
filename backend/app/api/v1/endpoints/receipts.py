@@ -12,7 +12,7 @@ from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.billing import ReceiptCreate, ReceiptOut
 from app.services.numbering import next_document_number
-from app.services.pdf import render_document_pdf
+from app.services.pdf import render_document_pdf, business_lines
 
 router = APIRouter()
 
@@ -94,9 +94,11 @@ def receipt_pdf(
     pdf_bytes = render_document_pdf(
         doc_type="RECEIPT", number=receipt.number, tenant_name=tenant.name, branding=branding,
         customer_name=invoice.customer_name, issue_date=receipt.received_at.isoformat(),
+        from_lines=business_lines(tenant, branding),
+        meta_fields=[("Against Invoice", invoice.number)],
+        note="Payment Received",
         meta_lines=[
-            f"Against invoice: {invoice.number}",
-            f"Payment method: {receipt.payment_method or '—'}",
+            f"Payment method: {receipt.payment_method or '-'}",
             *([f"Reference: {receipt.payment_reference}"] if receipt.payment_reference else []),
             *([f"Purpose: {receipt.notes}"] if receipt.notes else []),
         ],

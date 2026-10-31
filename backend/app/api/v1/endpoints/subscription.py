@@ -9,7 +9,10 @@ import os
 import uuid
 from datetime import datetime, timezone
 
+import tempfile
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -30,6 +33,9 @@ from app.services.trial import assert_trial_available, claim_trial, TrialAlready
 from app.services.razorpay_client import create_order, verify_signature, RazorpayError
 from app.services.pricing import resolve_plan_price
 from app.core.currencies import WORLD_CURRENCIES, currency_for_phone
+from app.services.pdf import (
+    PAPER_SIZES, FONT_CHOICES, DocStyle, valid_hex, style_from_branding, render_preview,
+)
 
 router = APIRouter()
 
@@ -293,13 +299,178 @@ def _save_upload(tenant_id: uuid.UUID, kind: str, file: UploadFile) -> str:
     return path
 
 
+# ---- Document style (paper, font, size, colour) ------------------------------------
+
+_STYLE_FIELDS = ("doc_paper_size", "doc_font", "doc_font_size", "doc_accent_color",
+                 "doc_header_style", "doc_address", "doc_phone", "doc_registration")
+
+
+def _clean_style(*, paper=None, font=None, size=None, accent=None, header_style=None) -> dict:
+    """Validate style inputs; returns only the keys that were provided."""
+    out: dict = {}
+    if paper not in (None, ""):
+        if paper.upper() not in PAPER_SIZES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a paper size from the list.")
+        out["doc_paper_size"] = paper.upper()
+    if font not in (None, ""):
+        if font.lower() not in FONT_CHOICES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Choose a font from the list.")
+        out["doc_font"] = font.lower()
+    if size not in (None, ""):
+        if not 8 <= int(size) <= 14:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Font size must be between 8 and 14.")
+        out["doc_font_size"] = int(size)
+    if accent not in (None, ""):
+        if not valid_hex(accent):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Colour must be a hex code like #FDB515.")
+        out["doc_accent_color"] = accent.strip().upper()
+    if header_style not in (None, ""):
+        if header_style not in ("shape", "image"):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Header style must be shape or image.")
+        out["doc_header_style"] = header_style
+    return out
+
+
+def _apply_style(branding: TenantBranding, style: dict, address, phone, registration) -> None:
+    for k, v in style.items():
+        setattr(branding, k, v)
+    if address is not None:
+        branding.doc_address = address.strip()[:500] or None
+    if phone is not None:
+        branding.doc_phone = phone.strip()[:50] or None
+    if registration is not None:
+        branding.doc_registration = registration.strip()[:200] or None
+
+
+_ALLOWED_IMG = {"image/png", "image/jpeg", "image/webp"}
+_MAX_PREVIEW_IMG = 3 * 1024 * 1024
+
+
+def _preview_pdf(*, doc_type, tenant_name, currency, style: DocStyle, address, phone, email, registration,
+                 footer_text, files: dict, fallback: dict) -> Response:
+    """Render a sample document. `files` are fresh uploads; `fallback` are saved paths."""
+    with tempfile.TemporaryDirectory() as tmp:
+        paths: dict = {}
+        for kind in ("logo", "header", "footer"):
+            f = files.get(kind)
+            if f is not None:
+                if f.content_type not in _ALLOWED_IMG:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, "Images must be PNG, JPEG or WebP.")
+                data = f.file.read(_MAX_PREVIEW_IMG + 1)
+                if len(data) > _MAX_PREVIEW_IMG:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, "Image is too large for preview (max 3 MB).")
+                target = os.path.join(tmp, kind + (os.path.splitext(f.filename or "")[1] or ".png"))
+                with open(target, "wb") as out:
+                    out.write(data)
+                paths[kind] = target
+            else:
+                saved = fallback.get(kind)
+                paths[kind] = saved if saved and os.path.exists(saved) else None
+        lines = [ln.strip() for ln in (address or "").splitlines() if ln.strip()]
+        contact = " | ".join(x for x in (phone, email) if x)
+        if contact:
+            lines.append(contact)
+        if registration:
+            lines.append(registration)
+        pdf = render_preview(
+            doc_type=doc_type, style=style, tenant_name=tenant_name, from_lines=lines or ["Your address line", "City, State, Country"],
+            currency=currency, logo_path=paths.get("logo"), header_path=paths.get("header"),
+            footer_path=paths.get("footer"), footer_text=footer_text,
+        )
+    return Response(pdf, media_type="application/pdf", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/document-preview")
+def public_document_preview(
+    doc_type: str = Form("invoice"),
+    business_name: str = Form("Your Business"),
+    currency: str = Form("INR"),
+    doc_paper_size: str | None = Form(None),
+    doc_font: str | None = Form(None),
+    doc_font_size: int | None = Form(None),
+    doc_accent_color: str | None = Form(None),
+    doc_header_style: str | None = Form(None),
+    doc_address: str | None = Form(None),
+    doc_phone: str | None = Form(None),
+    doc_email: str | None = Form(None),
+    doc_registration: str | None = Form(None),
+    footer_text: str | None = Form(None),
+    logo: UploadFile | None = File(None),
+    header: UploadFile | None = File(None),
+    footer: UploadFile | None = File(None),
+):
+    """Signup-time preview. Uses only what the form sends; saves nothing."""
+    cleaned = _clean_style(paper=doc_paper_size, font=doc_font, size=doc_font_size,
+                           accent=doc_accent_color, header_style=doc_header_style)
+    st = DocStyle(
+        paper=cleaned.get("doc_paper_size", "A4"), font=cleaned.get("doc_font", "poppins"),
+        font_size=cleaned.get("doc_font_size", 9), accent=cleaned.get("doc_accent_color", DocStyle().accent),
+        header_style=cleaned.get("doc_header_style", "shape"),
+    )
+    return _preview_pdf(
+        doc_type=doc_type, tenant_name=(business_name or "Your Business")[:80], currency=(currency or "INR")[:5],
+        style=st, address=doc_address, phone=doc_phone, email=doc_email, registration=doc_registration,
+        footer_text=footer_text, files={"logo": logo, "header": header, "footer": footer}, fallback={},
+    )
+
+
+@router.post("/branding/preview")
+def my_document_preview(
+    doc_type: str = Form("invoice"),
+    doc_paper_size: str | None = Form(None),
+    doc_font: str | None = Form(None),
+    doc_font_size: int | None = Form(None),
+    doc_accent_color: str | None = Form(None),
+    doc_header_style: str | None = Form(None),
+    doc_address: str | None = Form(None),
+    doc_phone: str | None = Form(None),
+    doc_registration: str | None = Form(None),
+    footer_text: str | None = Form(None),
+    logo: UploadFile | None = File(None),
+    header: UploadFile | None = File(None),
+    footer: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_super_admin),
+    tenant_id: str = Depends(current_tenant_id_allow_expired),
+):
+    """Settings preview: the form values on top of what is saved. Saves nothing."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one()
+    saved = db.query(TenantBranding).filter(TenantBranding.tenant_id == tenant_id).one_or_none()
+    cleaned = _clean_style(paper=doc_paper_size, font=doc_font, size=doc_font_size,
+                           accent=doc_accent_color, header_style=doc_header_style)
+    st = style_from_branding(saved)
+    for key, attr in (("doc_paper_size", "paper"), ("doc_font", "font"), ("doc_font_size", "font_size"),
+                      ("doc_accent_color", "accent"), ("doc_header_style", "header_style")):
+        if key in cleaned:
+            setattr(st, attr, cleaned[key])
+    return _preview_pdf(
+        doc_type=doc_type, tenant_name=tenant.name, currency=getattr(tenant, "currency", None) or "INR", style=st,
+        address=doc_address if doc_address is not None else (saved.doc_address if saved else None),
+        phone=doc_phone if doc_phone is not None else (saved.doc_phone if saved else None),
+        email=getattr(tenant, "contact_email", None),
+        registration=doc_registration if doc_registration is not None else (saved.doc_registration if saved else None),
+        footer_text=footer_text if footer_text is not None else (saved.footer_text if saved else ""),
+        files={"logo": logo, "header": header, "footer": footer},
+        fallback={"logo": saved.logo_url if saved else None, "header": saved.header_url if saved else None,
+                  "footer": saved.footer_url if saved else None},
+    )
+
+
 @router.post("/{tenant_id}/branding", response_model=BrandingOut)
 def submit_branding(
     tenant_id: uuid.UUID,
     logo: UploadFile = File(...),
     header: UploadFile = File(...),
     footer: UploadFile = File(...),
-    footer_text: str = "",
+    footer_text: str = Form(""),
+    doc_paper_size: str | None = Form(None),
+    doc_font: str | None = Form(None),
+    doc_font_size: int | None = Form(None),
+    doc_accent_color: str | None = Form(None),
+    doc_header_style: str | None = Form(None),
+    doc_address: str | None = Form(None),
+    doc_phone: str | None = Form(None),
+    doc_registration: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Mandatory branding step of onboarding (SOW 3.4). All three assets are
@@ -322,6 +493,9 @@ def submit_branding(
     branding.header_url = _save_upload(tenant_id, "header", header)
     branding.footer_url = _save_upload(tenant_id, "footer", footer)
     branding.footer_text = footer_text
+    _apply_style(branding, _clean_style(paper=doc_paper_size, font=doc_font, size=doc_font_size,
+                                        accent=doc_accent_color, header_style=doc_header_style),
+                 doc_address, doc_phone, doc_registration)
     db.add(branding)
 
     try:
@@ -365,6 +539,14 @@ def update_my_branding(
     header: UploadFile | None = File(None),
     footer: UploadFile | None = File(None),
     footer_text: str | None = Form(None),
+    doc_paper_size: str | None = Form(None),
+    doc_font: str | None = Form(None),
+    doc_font_size: int | None = Form(None),
+    doc_accent_color: str | None = Form(None),
+    doc_header_style: str | None = Form(None),
+    doc_address: str | None = Form(None),
+    doc_phone: str | None = Form(None),
+    doc_registration: str | None = Form(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_super_admin),
     tenant_id: str = Depends(current_tenant_id),
@@ -395,6 +577,9 @@ def update_my_branding(
         branding.footer_url = _save_upload(tid, "footer", footer)
     if footer_text is not None:
         branding.footer_text = footer_text
+    _apply_style(branding, _clean_style(paper=doc_paper_size, font=doc_font, size=doc_font_size,
+                                        accent=doc_accent_color, header_style=doc_header_style),
+                 doc_address, doc_phone, doc_registration)
 
     db.add(branding)
     db.commit()

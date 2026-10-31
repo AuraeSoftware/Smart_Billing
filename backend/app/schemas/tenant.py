@@ -72,6 +72,14 @@ class BrandingOut(BaseModel):
     header_url: Optional[str]
     footer_url: Optional[str]
     footer_text: Optional[str]
+    doc_paper_size: Optional[str] = None
+    doc_font: Optional[str] = None
+    doc_font_size: Optional[int] = None
+    doc_accent_color: Optional[str] = None
+    doc_header_style: Optional[str] = None
+    doc_address: Optional[str] = None
+    doc_phone: Optional[str] = None
+    doc_registration: Optional[str] = None
 
     class Config:
         from_attributes = True

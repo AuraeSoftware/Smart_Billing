@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch, ApiError } from '../lib/api'
+import DocumentStyleEditor, { DEFAULT_DOC_STYLE, type DocStyleValues } from '../components/DocumentStyleEditor'
 
 /** Step 2 of subscription onboarding (SOW 3.4): logo, header, footer are
  * mandatory here — the backend refuses to activate the tenant without all
@@ -12,6 +13,7 @@ export default function SubscribeBranding() {
   const [header, setHeader] = useState<File | null>(null)
   const [footer, setFooter] = useState<File | null>(null)
   const [footerText, setFooterText] = useState('')
+  const [style, setStyle] = useState<DocStyleValues>(DEFAULT_DOC_STYLE)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   // Free trial workspaces are approved by the platform administrator before
@@ -34,6 +36,14 @@ export default function SubscribeBranding() {
       fd.append('header', header)
       fd.append('footer', footer)
       fd.append('footer_text', footerText)
+      fd.append('doc_paper_size', style.paper)
+      fd.append('doc_font', style.font)
+      fd.append('doc_font_size', String(style.size))
+      fd.append('doc_accent_color', style.accent)
+      fd.append('doc_header_style', style.headerStyle)
+      fd.append('doc_address', style.address)
+      fd.append('doc_phone', style.phone)
+      fd.append('doc_registration', style.registration)
       await apiFetch(`/subscription/${tenantId}/branding`, { method: 'POST', body: fd })
       const pay = await apiFetch<{ status: string }>(`/subscription/${tenantId}/payment/status`).catch(() => null)
       if (pay?.status === 'not_required') setAwaitingApproval(true)
@@ -62,7 +72,7 @@ export default function SubscribeBranding() {
 
   return (
     <div className="auth-shell">
-      <div className="auth-card auth-wide card">
+      <div className="auth-card auth-wide card" style={{ maxWidth: 1040 }}>
         <button
           type="button"
           onClick={() => navigate('/subscribe')}
@@ -100,8 +110,25 @@ export default function SubscribeBranding() {
             </div>
           </div>
 
+          <h3 style={{ marginTop: 24 }}>Document style</h3>
+          <p className="muted">Choose how your invoices, quotations and receipts look. You can change this later in Settings.</p>
+          <DocumentStyleEditor
+            value={style}
+            onChange={setStyle}
+            previewPath="/subscription/document-preview"
+            refreshKey={`${logo?.name ?? ''}${logo?.size ?? ''}|${header?.name ?? ''}${header?.size ?? ''}|${footer?.name ?? ''}${footer?.size ?? ''}|${footerText}`}
+            extraFields={() => {
+              const fd = new FormData()
+              if (logo) fd.append('logo', logo)
+              if (header) fd.append('header', header)
+              if (footer) fd.append('footer', footer)
+              fd.append('footer_text', footerText)
+              return fd
+            }}
+          />
+
           {error && <p className="error-text">{error}</p>}
-          <button className="btn" type="submit" disabled={loading}>
+          <button className="btn" type="submit" disabled={loading} style={{ marginTop: 16 }}>
             {loading ? 'Activating…' : 'Activate my workspace'}
           </button>
         </form>

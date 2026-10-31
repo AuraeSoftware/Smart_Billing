@@ -1,8 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { apiFetch, ApiError } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import DocumentStyleEditor, { DEFAULT_DOC_STYLE, type DocStyleValues } from '../components/DocumentStyleEditor'
 
-interface Branding { logo_url: string | null; header_url: string | null; footer_url: string | null; footer_text: string | null }
+interface Branding { logo_url: string | null; header_url: string | null; footer_url: string | null; footer_text: string | null
+  doc_paper_size?: string | null; doc_font?: string | null; doc_font_size?: number | null; doc_accent_color?: string | null
+  doc_header_style?: string | null; doc_address?: string | null; doc_phone?: string | null; doc_registration?: string | null }
 interface TenantUser { id: string; full_name: string; email: string; is_active: boolean; created_at: string }
 
 /**
@@ -34,6 +37,7 @@ function BrandingSection() {
   const [header, setHeader] = useState<File | null>(null)
   const [footer, setFooter] = useState<File | null>(null)
   const [footerText, setFooterText] = useState('')
+  const [style, setStyle] = useState<DocStyleValues>(DEFAULT_DOC_STYLE)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -43,6 +47,16 @@ function BrandingSection() {
       const b = await apiFetch<Branding>('/subscription/branding')
       setBranding(b)
       setFooterText(b.footer_text || '')
+      setStyle({
+        paper: b.doc_paper_size || DEFAULT_DOC_STYLE.paper,
+        font: b.doc_font || DEFAULT_DOC_STYLE.font,
+        size: b.doc_font_size || DEFAULT_DOC_STYLE.size,
+        accent: b.doc_accent_color || DEFAULT_DOC_STYLE.accent,
+        headerStyle: b.doc_header_style === 'image' ? 'image' : 'shape',
+        address: b.doc_address || '',
+        phone: b.doc_phone || '',
+        registration: b.doc_registration || '',
+      })
     } catch {
       setBranding(null)
     }
@@ -58,6 +72,14 @@ function BrandingSection() {
       if (header) fd.append('header', header)
       if (footer) fd.append('footer', footer)
       fd.append('footer_text', footerText)
+      fd.append('doc_paper_size', style.paper)
+      fd.append('doc_font', style.font)
+      fd.append('doc_font_size', String(style.size))
+      fd.append('doc_accent_color', style.accent)
+      fd.append('doc_header_style', style.headerStyle)
+      fd.append('doc_address', style.address)
+      fd.append('doc_phone', style.phone)
+      fd.append('doc_registration', style.registration)
       const updated = await apiFetch<Branding>('/subscription/branding', { method: 'PUT', body: fd })
       setBranding(updated)
       setLogo(null); setHeader(null); setFooter(null)
@@ -87,9 +109,26 @@ function BrandingSection() {
         <div className="field"><label>Replace header</label><input type="file" accept="image/png,image/jpeg,image/webp" disabled={!canEdit} onChange={(e) => setHeader(e.target.files?.[0] ?? null)} /></div>
         <div className="field"><label>Replace footer</label><input type="file" accept="image/png,image/jpeg,image/webp" disabled={!canEdit} onChange={(e) => setFooter(e.target.files?.[0] ?? null)} /></div>
         <div className="field"><label>Footer text</label><textarea rows={3} value={footerText} disabled={!canEdit} onChange={(e) => setFooterText(e.target.value)} /></div>
+        <h3 style={{ marginTop: 24 }}>Document style</h3>
+        <p className="muted">Paper, font and colour for your invoices, quotations and receipts. The preview updates as you change them.</p>
+        <DocumentStyleEditor
+          value={style}
+          onChange={setStyle}
+          disabled={!canEdit}
+          previewPath="/subscription/branding/preview"
+          refreshKey={`${logo?.name ?? ''}${logo?.size ?? ''}|${header?.name ?? ''}${header?.size ?? ''}|${footer?.name ?? ''}${footer?.size ?? ''}|${footerText}|${branding?.logo_url ?? ''}`}
+          extraFields={() => {
+            const fd = new FormData()
+            if (logo) fd.append('logo', logo)
+            if (header) fd.append('header', header)
+            if (footer) fd.append('footer', footer)
+            fd.append('footer_text', footerText)
+            return fd
+          }}
+        />
         {error && <p className="error-text">{error}</p>}
         {message && <p className="muted">{message}</p>}
-        <button className="btn amber" type="submit" disabled={saving || !canEdit}>{saving ? 'Saving…' : 'Save changes'}</button>
+        <button className="btn amber" type="submit" disabled={saving || !canEdit} style={{ marginTop: 16 }}>{saving ? 'Saving…' : 'Save changes'}</button>
       </form>
     </div>
   )

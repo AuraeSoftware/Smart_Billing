@@ -15,7 +15,7 @@ from app.models.subscription_plan import SubscriptionPlan
 from app.models.user import User
 from app.schemas.billing import InvoiceCreate, InvoiceOut, InvoicePaymentIn, InvoicePaymentOut
 from app.services.numbering import next_document_number
-from app.services.pdf import render_document_pdf
+from app.services.pdf import render_document_pdf, business_lines, pretty_date
 from app.services.usage import invoices_this_month
 from app.api.v1.endpoints.customers import find_or_create_customer, remember_customer_details
 from app.api.v1.endpoints.receipts import record_receipt
@@ -266,7 +266,10 @@ def invoice_pdf(
         doc_type="INVOICE", number=invoice.number, tenant_name=tenant.name, branding=branding,
         customer_name=invoice.customer_name, issue_date=invoice.issue_date.isoformat(),
         customer_lines=_contact_lines(invoice.customer_address, invoice.customer_phone, invoice.customer_email),
-        meta_lines=[f"Due: {invoice.due_date.isoformat()}"] if invoice.due_date else [],
+        from_lines=business_lines(tenant, branding),
+        meta_fields=[("Invoice Due", pretty_date(invoice.due_date.isoformat()))] if invoice.due_date else [],
+        note="Payment Received" if invoice.status == InvoiceStatus.PAID else invoice.notes,
+        meta_lines=[],
         line_items=[
             {"description": i.description, "quantity": i.quantity, "unit_price": f"{cur} {float(i.unit_price):,.2f}", "line_total": f"{cur} {float(i.line_total):,.2f}"}
             for i in invoice.items

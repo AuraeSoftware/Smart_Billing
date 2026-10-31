@@ -14,7 +14,7 @@ from app.models.subscription_plan import SubscriptionPlan
 from app.models.user import User
 from app.schemas.billing import QuotationCreate, QuotationOut, InvoiceOut
 from app.services.numbering import next_document_number
-from app.services.pdf import render_document_pdf
+from app.services.pdf import render_document_pdf, business_lines, pretty_date
 from app.services.usage import invoices_this_month
 from app.api.v1.endpoints.invoices import _compute_totals
 from app.api.v1.endpoints.customers import find_or_create_customer, remember_customer_details
@@ -181,7 +181,11 @@ def quotation_pdf(
         doc_type="QUOTATION", number=quotation.number, tenant_name=tenant.name, branding=branding,
         customer_name=quotation.customer_name, issue_date=quotation.issue_date.isoformat(),
         customer_lines=_contact_lines(quotation.customer_address, quotation.customer_phone, quotation.customer_email),
-        meta_lines=[f"Valid until: {quotation.valid_until.isoformat()}"] if quotation.valid_until else [],
+        from_lines=business_lines(tenant, branding),
+        meta_fields=[("Valid Until", pretty_date(quotation.valid_until.isoformat()))] if quotation.valid_until else [],
+        badge=f"Validity {(quotation.valid_until - quotation.issue_date).days} days" if quotation.valid_until and quotation.valid_until >= quotation.issue_date else None,
+        note=quotation.notes,
+        meta_lines=[],
         line_items=[
             {"description": i.description, "quantity": i.quantity, "unit_price": f"{cur} {float(i.unit_price):,.2f}", "line_total": f"{cur} {float(i.line_total):,.2f}"}
             for i in quotation.items
