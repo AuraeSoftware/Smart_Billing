@@ -35,6 +35,10 @@ interface SuperAdminRow {
   plan_name: string | null
   created_at: string
   awaiting_approval?: boolean
+  plan_expires_at?: string | null
+  days_left?: number | null
+  expired?: boolean
+  pending_upgrade?: boolean
   invoices_used: number
   invoices_limit: number | null
   usage_percent: number
@@ -233,10 +237,12 @@ export function SuperAdminsPage({ initialView }: { initialView?: 'All' | 'Pendin
                     <span style={{ fontWeight: 700, color: 'var(--accent)' }}>{r.tenant_name || '—'}</span>
                     {r.tenant_status && <span style={{ marginLeft: 8 }}><StatusChip status={r.tenant_status} /></span>}
                     {r.awaiting_approval && <span className="status-chip status-chip-blue" style={{ marginLeft: 6 }}>Awaiting approval</span>}
+                    {r.expired && <span className="status-chip status-chip-red" style={{ marginLeft: 6 }}>Plan expired</span>}
+                    {r.pending_upgrade && <span className="status-chip status-chip-blue" style={{ marginLeft: 6 }}>Upgrade requested</span>}
                   </div>
                   <div style={{ background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 10px', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
                     <span><span style={{ color: 'var(--text-3)' }}>Plan: </span><span style={{ fontWeight: 700 }}>{r.plan_name || 'No plan'}</span></span>
-                    <span style={{ color: 'var(--text-3)' }}>{r.tenant_currency}</span>
+                    <span style={{ color: 'var(--text-3)' }}>{r.tenant_currency}{r.plan_expires_at ? ` · ${r.expired ? 'expired' : 'valid until'} ${r.plan_expires_at}` : ''}</span>
                   </div>
                   {r.invoices_limit != null && (
                     <div style={{
@@ -1284,6 +1290,117 @@ export function ReportsPage() {
           </tbody>
         </table>
           </div>
+      )}
+    </DashboardCard>
+  )
+}
+
+
+// ============================================================================
+// Upgrade Requests — Super Admins ask to move to / renew a plan; nothing
+// changes until it is approved here.
+// ============================================================================
+
+interface UpgradeRequestRow {
+  id: string
+  tenant_id: string
+  tenant_name: string
+  requested_by: string | null
+  status: string
+  from_plan_name: string | null
+  to_plan_name: string
+  to_plan_price: number | null
+  to_plan_currency: string | null
+  to_plan_cycle: string | null
+  current_expires_at: string | null
+  expired: boolean
+  note: string | null
+  decision_note: string | null
+  created_at: string
+  decided_at: string | null
+}
+
+export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = {}) {
+  const [rows, setRows] = useState<UpgradeRequestRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<'pending' | 'all'>('pending')
+  const [acting, setActing] = useState<{ row: UpgradeRequestRow; action: 'approve' | 'reject' } | null>(null)
+  const [reply, setReply] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  function load() {
+    setLoading(true)
+    apiFetch<UpgradeRequestRow[]>(`/admin/upgrade-requests${filter === 'pending' ? '?status_filter=pending' : ''}`)
+      .then(setRows).catch(() => setRows([])).finally(() => setLoading(false))
+  }
+  useEffect(load, [filter])
+
+  async function decide() {
+    if (!acting) return
+    setBusy(true); setError(null)
+    try {
+      await apiFetch(`/admin/upgrade-requests/${acting.row.id}/${acting.action}`, { method: 'POST', body: JSON.stringify({ decision_note: reply || null }) })
+      setActing(null); setReply('')
+      load(); onChanged?.()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not save the decision.')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <DashboardCard title="Upgrade Requests" subtitle="Approve a request to switch the workspace to the new plan and start its validity period.">
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <button className={`btn${filter === 'pending' ? ' amber' : ''}`} onClick={() => setFilter('pending')}>Pending</button>
+        <button className={`btn${filter === 'all' ? ' amber' : ''}`} onClick={() => setFilter('all')}>All</button>
+      </div>
+      {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
+        <EmptyState title={filter === 'pending' ? 'No pending requests' : 'No requests yet'} sub="Upgrade and renewal requests from Super Admins appear here." />
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Requested</th><th>Workspace</th><th>Change</th><th>Price</th><th>Current validity</th><th>Note</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.created_at.slice(0, 10)}</td>
+                  <td><strong>{r.tenant_name}</strong>{r.requested_by && <div className="muted" style={{ fontSize: 12 }}>{r.requested_by}</div>}</td>
+                  <td style={{ whiteSpace: 'normal' }}>{r.from_plan_name || 'No plan'} → <strong>{r.to_plan_name}</strong></td>
+                  <td>{r.to_plan_price != null ? `${r.to_plan_currency} ${r.to_plan_price.toFixed(2)} / ${r.to_plan_cycle}` : '—'}</td>
+                  <td>{r.current_expires_at ? <span style={r.expired ? { color: 'var(--red)', fontWeight: 700 } : undefined}>{r.expired ? 'Expired ' : ''}{r.current_expires_at}</span> : <span className="muted">No expiry</span>}</td>
+                  <td style={{ whiteSpace: 'normal', maxWidth: 220 }}>{r.note || <span className="muted">—</span>}</td>
+                  <td><StatusChip status={r.status} /></td>
+                  <td>
+                    {r.status === 'pending' && (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn amber" onClick={() => { setError(null); setReply(''); setActing({ row: r, action: 'approve' }) }}>Approve</button>
+                        <button className="btn" onClick={() => { setError(null); setReply(''); setActing({ row: r, action: 'reject' }) }}>Reject</button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {acting && (
+        <Modal title={`${acting.action === 'approve' ? 'Approve' : 'Reject'} · ${acting.row.tenant_name}`} open onClose={() => setActing(null)}>
+          <p>
+            {acting.action === 'approve'
+              ? `${acting.row.tenant_name} will move to ${acting.row.to_plan_name} and can use the dashboard again right away. Confirm you have received the payment.`
+              : `${acting.row.tenant_name} stays on its current plan.`}
+          </p>
+          <div className="field">
+            <label>Message to the customer (optional)</label>
+            <input maxLength={500} value={reply} onChange={(e) => setReply(e.target.value)} />
+          </div>
+          {error && <p className="error-text">{error}</p>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button className="btn amber" disabled={busy} onClick={decide}>{busy ? 'Saving…' : acting.action === 'approve' ? 'Approve' : 'Reject'}</button>
+            <button className="btn" onClick={() => setActing(null)}>Cancel</button>
+          </div>
+        </Modal>
       )}
     </DashboardCard>
   )

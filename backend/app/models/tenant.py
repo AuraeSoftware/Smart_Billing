@@ -1,8 +1,8 @@
 import uuid
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import String, DateTime, Enum, ForeignKey, func
+from sqlalchemy import String, Date, DateTime, Enum, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,6 +43,10 @@ class Tenant(Base):
     subscription_plan_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("subscription_plans.id", ondelete="SET NULL"), nullable=True,
     )
+
+    # Last day the current plan is valid (inclusive). NULL = no expiry (every
+    # workspace created before expiry tracking existed keeps working as-is).
+    plan_expires_at: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

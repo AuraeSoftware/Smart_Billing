@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.models.device import DeviceSession
 from app.models.tenant import Tenant, SubscriptionStatus
+from app.services.plan_expiry import is_expired
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -53,10 +54,28 @@ require_super_admin = require_role(UserRole.SUPER_ADMIN)
 require_tenant_staff = require_role(UserRole.SUPER_ADMIN, UserRole.TENANT_USER)
 
 
-def current_tenant_id(user: User = Depends(get_current_user)) -> str:
+def current_tenant_id_allow_expired(user: User = Depends(get_current_user)) -> str:
+    """Tenant scoping WITHOUT the expiry lock — used only by the few
+    endpoints an expired workspace still needs (plan status, upgrade
+    request, branding for the logo, password change)."""
     if user.tenant_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This account is not scoped to a tenant.")
     return str(user.tenant_id)
+
+
+def current_tenant_id(
+    db: Session = Depends(get_db), tenant_id: str = Depends(current_tenant_id_allow_expired),
+) -> str:
+    """Every tenant-scoped endpoint goes through here, so once a workspace's
+    plan has expired the whole dashboard's data is locked — login still
+    works, but nothing loads until an upgrade/renewal is approved."""
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).one_or_none()
+    if tenant is not None and is_expired(tenant):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Your plan has expired. Request an upgrade or renewal to continue — your data is safe.",
+        )
+    return tenant_id
 
 
 def require_active_tenant(db: Session = Depends(get_db), tenant_id: str = Depends(current_tenant_id)) -> str:

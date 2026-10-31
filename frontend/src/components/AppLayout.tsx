@@ -10,6 +10,8 @@ export interface NavItem {
   /** One of DashboardUI's ICONS keys — every nav item gets one so the
    * sidebar matches Smart Garage 360's icon+label row style. */
   icon: keyof typeof ICONS
+  /** Optional count shown as a red pill (e.g. pending approvals). */
+  badge?: number
 }
 
 interface AppLayoutProps {
@@ -71,6 +73,7 @@ export default function AppLayout({ brandSuffix, navItems, activeKey, onNavigate
             >
               <Icon path={ICONS[item.icon]} size={17} />
               {item.label}
+              {item.badge ? <span className="status-chip status-chip-red" style={{ marginLeft: 'auto' }}>{item.badge}</span> : null}
             </button>
           ))}
         </nav>

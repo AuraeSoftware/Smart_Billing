@@ -12,7 +12,7 @@ import {
 } from '../components/DashboardUI'
 import {
   SuperAdminsPage, SubscriptionPlansPage, CurrencyConfigPage,
-  SubscriptionHistoryPage, PaymentSettingsPage, ReportsPage, CredentialsPage,
+  SubscriptionHistoryPage, PaymentSettingsPage, ReportsPage, CredentialsPage, UpgradeRequestsPage,
 } from './supreme/SupremeExtras'
 
 // Exact order of Smart Garage 360's Supreme Admin sidebar (Dashboard,
@@ -27,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'super-admins', label: 'Super Admins', icon: 'users' },
   { key: 'subscription-plans', label: 'Subscription Plans', icon: 'star' },
   { key: 'currency-config', label: 'Currency Config', icon: 'shield' },
+  { key: 'upgrade-requests', label: 'Upgrade Requests', icon: 'convert' },
   { key: 'subscription-history', label: 'Subscription History', icon: 'clock' },
   { key: 'credentials', label: 'Credentials', icon: 'key' },
   { key: 'devices', label: 'Device Alerts', icon: 'bell' },
@@ -85,8 +86,21 @@ export default function SupremeAdminDashboard() {
   const [tab, setTab] = useState<
     'overview' | 'devices' | 'reports' | 'super-admins' |
     'subscription-plans' | 'currency-config' | 'subscription-history' |
-    'payment-settings' | 'credentials'
+    'payment-settings' | 'credentials' | 'upgrade-requests'
   >('overview')
+  // Pending plan upgrade/renewal requests — shown as a badge on the sidebar
+  // so the Supreme Admin sees them without opening anything.
+  const [pendingUpgrades, setPendingUpgrades] = useState(0)
+  const loadPendingUpgrades = () => { apiFetch<{ count: number }>('/admin/upgrade-requests/pending-count').then((r) => setPendingUpgrades(r.count)).catch(() => {}) }
+  useEffect(() => {
+    loadPendingUpgrades()
+    const t = setInterval(loadPendingUpgrades, 60_000)
+    return () => clearInterval(t)
+  }, [])
+  const navItems = useMemo(
+    () => NAV_ITEMS.map((n) => (n.key === 'upgrade-requests' ? { ...n, badge: pendingUpgrades } : n)),
+    [pendingUpgrades],
+  )
   // SB07: lets "Needs attention → See all" land the Super Admins tab
   // directly on the combined pending+suspended view instead of the
   // Active & Suspended default, which was hiding pending tenants.
@@ -148,7 +162,7 @@ export default function SupremeAdminDashboard() {
   return (
     <AppLayout
       brandSuffix="Supreme Admin"
-      navItems={NAV_ITEMS}
+      navItems={navItems}
       activeKey={tab}
       onNavigate={(key) => {
         // Clicking "Super Admins" directly in the nav (as opposed to
@@ -220,6 +234,7 @@ export default function SupremeAdminDashboard() {
       {tab === 'subscription-plans' && <SubscriptionPlansPage />}
       {tab === 'currency-config' && <CurrencyConfigPage />}
       {tab === 'subscription-history' && <SubscriptionHistoryPage />}
+      {tab === 'upgrade-requests' && <UpgradeRequestsPage onChanged={loadPendingUpgrades} />}
       {tab === 'payment-settings' && <PaymentSettingsPage />}
       {tab === 'credentials' && <CredentialsPage />}
     </AppLayout>

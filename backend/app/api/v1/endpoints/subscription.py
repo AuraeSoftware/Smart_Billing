@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.config import settings
 from app.core.security import hash_password
-from app.api.deps import require_super_admin, current_tenant_id
+from app.api.deps import require_super_admin, current_tenant_id, current_tenant_id_allow_expired
 from app.models.tenant import Tenant, SubscriptionStatus
 from app.models.user import User, UserRole
 from app.models.branding import TenantBranding
@@ -350,7 +350,7 @@ def submit_branding(
 def get_my_branding(
     db: Session = Depends(get_db),
     _: User = Depends(require_super_admin),
-    tenant_id: str = Depends(current_tenant_id),
+    tenant_id: str = Depends(current_tenant_id_allow_expired),
 ):
     """The Super Admin settings screen reads current branding from here."""
     branding = db.query(TenantBranding).filter(TenantBranding.tenant_id == tenant_id).one_or_none()

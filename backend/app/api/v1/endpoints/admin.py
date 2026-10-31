@@ -28,6 +28,8 @@ from app.core.currencies import WORLD_CURRENCIES
 from app.services.device_binding import suspend_credential, reactivate_credential, deregister_device
 from app.services.subscription_events import log_subscription_event
 from app.services.usage import usage_snapshot
+from app.services.plan_expiry import is_expired, days_left, start_plan_term, renew_plan_term
+from app.models.upgrade_request import PlanUpgradeRequest
 from app.services.fx_client import fetch_live_rates, FxRateError
 
 router = APIRouter()
@@ -131,6 +133,10 @@ class SuperAdminRow(BaseModel):
     created_at: str
     # Free-trial workspace that finished branding and is waiting for approval.
     awaiting_approval: bool = False
+    plan_expires_at: str | None = None
+    days_left: int | None = None
+    expired: bool = False
+    pending_upgrade: bool = False
     # Plan-usage tracking (SOW: the Supreme Admin tracks Super Admins and
     # the plan they're on, not their raw invoice/quotation business data) —
     # how many invoices this tenant has created against their plan's
@@ -166,6 +172,10 @@ def list_super_admins(db: Session = Depends(get_db), _: User = Depends(require_s
             plan_name=plan.name if plan else None,
             created_at=u.created_at.isoformat(),
             awaiting_approval=is_awaiting_approval(db, tenant) if tenant else False,
+            plan_expires_at=tenant.plan_expires_at.isoformat() if tenant and tenant.plan_expires_at else None,
+            days_left=days_left(tenant) if tenant else None,
+            expired=is_expired(tenant) if tenant else False,
+            pending_upgrade=bool(tenant and db.query(PlanUpgradeRequest).filter(PlanUpgradeRequest.tenant_id == tenant.id, PlanUpgradeRequest.status == "pending").count()),
             **usage,
         ))
     return rows
@@ -390,6 +400,12 @@ def reactivate_tenant(tenant_id: uuid.UUID, db: Session = Depends(get_db), admin
     old_status = tenant.subscription_status.value if hasattr(tenant.subscription_status, "value") else str(tenant.subscription_status)
     was_awaiting = is_awaiting_approval(db, tenant)
     tenant.subscription_status = SubscriptionStatus.ACTIVE
+    # First go-live (trial approval): the plan's term starts now. A plain
+    # suspended -> active reactivation leaves the existing expiry alone.
+    if was_awaiting and tenant.subscription_plan_id:
+        _plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none()
+        if _plan is not None:
+            start_plan_term(tenant, _plan)
     db.add(tenant)
     log_subscription_event(
         db, tenant=tenant, event_type="approved" if was_awaiting else "reactivated",
@@ -700,3 +716,128 @@ def reset_super_admin_password(user_id: uuid.UUID, payload: ResetPasswordRequest
     db.add(user)
     db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Plan upgrade / renewal requests (raised by a Super Admin, decided here)
+# ---------------------------------------------------------------------------
+
+class UpgradeRequestRow(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    tenant_name: str
+    requested_by: str | None
+    status: str
+    from_plan_name: str | None
+    to_plan_name: str
+    to_plan_price: float | None
+    to_plan_currency: str | None
+    to_plan_cycle: str | None
+    current_expires_at: str | None
+    expired: bool
+    note: str | None
+    decision_note: str | None
+    created_at: str
+    decided_at: str | None
+
+
+class UpgradeDecisionIn(BaseModel):
+    decision_note: str | None = None
+
+
+def _upgrade_row(db: Session, r: PlanUpgradeRequest) -> UpgradeRequestRow:
+    tenant = db.query(Tenant).filter(Tenant.id == r.tenant_id).one()
+    to_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == r.to_plan_id).one_or_none()
+    from_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == r.from_plan_id).one_or_none() if r.from_plan_id else None
+    requester = db.query(User).filter(User.id == r.requested_by_id).one_or_none() if r.requested_by_id else None
+    return UpgradeRequestRow(
+        id=r.id, tenant_id=tenant.id, tenant_name=tenant.name,
+        requested_by=requester.full_name if requester else None, status=r.status,
+        from_plan_name=from_plan.name if from_plan else None,
+        to_plan_name=to_plan.name if to_plan else "(removed plan)",
+        to_plan_price=float(to_plan.price) if to_plan else None,
+        to_plan_currency=to_plan.currency if to_plan else None,
+        to_plan_cycle=to_plan.billing_cycle if to_plan else None,
+        current_expires_at=tenant.plan_expires_at.isoformat() if tenant.plan_expires_at else None,
+        expired=is_expired(tenant), note=r.note, decision_note=r.decision_note,
+        created_at=r.created_at.isoformat(), decided_at=r.decided_at.isoformat() if r.decided_at else None,
+    )
+
+
+@router.get("/upgrade-requests", response_model=list[UpgradeRequestRow])
+def list_upgrade_requests(
+    status_filter: str | None = None,
+    db: Session = Depends(get_db), _: User = Depends(require_supreme_admin),
+):
+    q = db.query(PlanUpgradeRequest)
+    if status_filter in ("pending", "approved", "rejected"):
+        q = q.filter(PlanUpgradeRequest.status == status_filter)
+    return [_upgrade_row(db, r) for r in q.order_by(PlanUpgradeRequest.created_at.desc()).limit(200).all()]
+
+
+@router.get("/upgrade-requests/pending-count")
+def pending_upgrade_count(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    return {"count": db.query(PlanUpgradeRequest).filter(PlanUpgradeRequest.status == "pending").count()}
+
+
+def _pending_request(db: Session, request_id: uuid.UUID) -> PlanUpgradeRequest:
+    r = db.query(PlanUpgradeRequest).filter(PlanUpgradeRequest.id == request_id).one_or_none()
+    if r is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found.")
+    if r.status != "pending":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"This request was already {r.status}.")
+    return r
+
+
+@router.post("/upgrade-requests/{request_id}/approve", response_model=UpgradeRequestRow)
+def approve_upgrade_request(
+    request_id: uuid.UUID, payload: UpgradeDecisionIn,
+    db: Session = Depends(get_db), admin: User = Depends(require_supreme_admin),
+):
+    """Approving is what actually changes the workspace: it moves to the
+    requested plan and a fresh term starts (stacked after any paid time still
+    left). An expired workspace becomes usable again straight away."""
+    r = _pending_request(db, request_id)
+    tenant = db.query(Tenant).filter(Tenant.id == r.tenant_id).one()
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == r.to_plan_id).one_or_none()
+    if plan is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The requested plan no longer exists.")
+    old_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none() if tenant.subscription_plan_id else None
+    tenant.subscription_plan_id = plan.id
+    renew_plan_term(tenant, plan)
+    db.add(tenant)
+    r.status = "approved"
+    r.decision_note = payload.decision_note
+    r.decided_by_id = admin.id
+    r.decided_at = datetime.utcnow()
+    db.add(r)
+    log_subscription_event(
+        db, tenant=tenant, event_type="plan_changed", changed_by=admin,
+        old_value=old_plan.name if old_plan else None, new_value=plan.name,
+        note=f"Upgrade approved. Valid until {tenant.plan_expires_at.isoformat()}.",
+    )
+    db.commit()
+    db.refresh(r)
+    return _upgrade_row(db, r)
+
+
+@router.post("/upgrade-requests/{request_id}/reject", response_model=UpgradeRequestRow)
+def reject_upgrade_request(
+    request_id: uuid.UUID, payload: UpgradeDecisionIn,
+    db: Session = Depends(get_db), admin: User = Depends(require_supreme_admin),
+):
+    r = _pending_request(db, request_id)
+    tenant = db.query(Tenant).filter(Tenant.id == r.tenant_id).one()
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == r.to_plan_id).one_or_none()
+    r.status = "rejected"
+    r.decision_note = payload.decision_note
+    r.decided_by_id = admin.id
+    r.decided_at = datetime.utcnow()
+    db.add(r)
+    log_subscription_event(
+        db, tenant=tenant, event_type="upgrade_rejected", changed_by=admin,
+        new_value=plan.name if plan else None, note=payload.decision_note,
+    )
+    db.commit()
+    db.refresh(r)
+    return _upgrade_row(db, r)

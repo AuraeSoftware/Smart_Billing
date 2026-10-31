@@ -116,6 +116,9 @@ const STATUS_TONE: Record<string, string> = {
   declined: 'red',
   expired: 'red',
   converted: 'blue',
+  pending: 'amber',
+  approved: 'green',
+  rejected: 'red',
 }
 
 /** Small rounded status pill — color follows STATUS_TONE, unknown values

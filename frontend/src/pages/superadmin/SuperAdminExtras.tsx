@@ -29,9 +29,17 @@ interface MyPlan {
   plan_has_employee_management: boolean
   plan_inventory_tier: string | null
   plan_role_permissions_tier: string | null
+  plan_is_trial?: boolean
+  plan_expires_at?: string | null
+  days_left?: number | null
+  expired?: boolean
 }
 
-export function MyPlanPage() {
+interface UpgradePlan { id: string; name: string; price: number; currency: string; billing_cycle: string; max_users: number; max_invoices_per_month: number | null; is_trial: boolean; color: string }
+interface UpgradeRequest { id: string; status: string; from_plan_name: string | null; to_plan_name: string; to_plan_price: number | null; to_plan_currency: string | null; to_plan_cycle: string | null; note: string | null; decision_note: string | null; created_at: string; decided_at: string | null }
+interface PayInfo { bank_name: string | null; account_name: string | null; account_number: string | null; ifsc_code: string | null; upi_id: string | null; notes: string | null }
+
+export function MyPlanPage({ onPlanChanged }: { onPlanChanged?: () => void } = {}) {
   const [plan, setPlan] = useState<MyPlan | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -43,10 +51,13 @@ export function MyPlanPage() {
   if (!plan) return <DashboardCard title="My Plan"><EmptyState title="Could not load plan details" /></DashboardCard>
 
   return (
-    <DashboardCard title="My Plan" subtitle="Your current subscription — contact Aurae Software Solutions to change plans.">
+    <>
+    <DashboardCard title="My Plan" subtitle="Your current subscription, its validity, and upgrade or renewal.">
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16 }}>
         <StatusChip status={plan.subscription_status} />
         <span className="muted">Billing currency: {plan.currency}</span>
+        {plan.expired && <span className="status-chip status-chip-red">Plan expired</span>}
+        {!plan.expired && plan.plan_expires_at && plan.days_left != null && plan.days_left <= 7 && <span className="status-chip status-chip-red">Expires in {plan.days_left} day{plan.days_left === 1 ? '' : 's'}</span>}
       </div>
       {plan.plan_name ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
@@ -56,6 +67,13 @@ export function MyPlanPage() {
           <div><div className="muted">Max invoices / month</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.plan_max_invoices_per_month ?? 'Unlimited'}</div></div>
           <div><div className="muted">Max branches</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.plan_max_branches ?? '—'}</div></div>
           <div><div className="muted">Max products</div><div style={{ fontWeight: 800, fontSize: 16 }}>{plan.plan_max_products ?? 'Unlimited'}</div></div>
+          <div>
+            <div className="muted">{plan.expired ? 'Expired on' : 'Valid until'}</div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: plan.expired ? 'var(--red)' : undefined }}>
+              {plan.plan_expires_at || 'No expiry'}
+              {plan.days_left != null && !plan.expired && <span className="muted" style={{ fontWeight: 600, fontSize: 12 }}> · {plan.days_left} day{plan.days_left === 1 ? '' : 's'} left</span>}
+            </div>
+          </div>
           {plan.plan_description && <div style={{ gridColumn: '1 / -1' }}><div className="muted">Description</div><div>{plan.plan_description}</div></div>}
           <div style={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
             {plan.plan_has_priority_support && <span className="status-chip status-chip-blue">Priority support</span>}
@@ -67,6 +85,121 @@ export function MyPlanPage() {
         </div>
       ) : (
         <EmptyState title="No plan assigned yet" sub="Aurae Software Solutions will assign a plan to your workspace shortly." />
+      )}
+    </DashboardCard>
+    <UpgradeSection plan={plan} onRequested={onPlanChanged} />
+    </>
+  )
+}
+
+/** Upgrade / renewal: the Super Admin picks a plan and sends a request; the
+ * Supreme Admin is notified and must approve before the plan changes. */
+function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () => void }) {
+  const [requests, setRequests] = useState<UpgradeRequest[]>([])
+  const [open, setOpen] = useState(false)
+  const [plans, setPlans] = useState<UpgradePlan[]>([])
+  const [choice, setChoice] = useState('')
+  const [note, setNote] = useState('')
+  const [pay, setPay] = useState<PayInfo | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  function load() { apiFetch<UpgradeRequest[]>('/account/upgrade-requests').then(setRequests).catch(() => {}) }
+  useEffect(load, [])
+
+  const pending = requests.find((r) => r.status === 'pending')
+
+  async function openDialog() {
+    setError(null); setOpen(true)
+    try {
+      const all = await apiFetch<UpgradePlan[]>(`/subscription/plans?currency=${encodeURIComponent(plan.currency)}`)
+      setPlans(all.filter((p) => !p.is_trial))
+    } catch { setPlans([]) }
+    apiFetch<PayInfo | null>('/account/payment-settings').then(setPay).catch(() => {})
+  }
+
+  async function submit() {
+    setError(null)
+    if (!choice) { setError('Choose the plan you want.'); return }
+    setBusy(true)
+    try {
+      await apiFetch('/account/upgrade-requests', { method: 'POST', body: JSON.stringify({ plan_id: choice, note: note || null }) })
+      setOpen(false); setChoice(''); setNote('')
+      load(); onRequested?.()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not send the request.')
+    } finally { setBusy(false) }
+  }
+
+  const label = plan.expired ? 'Renew / upgrade plan' : 'Upgrade plan'
+  return (
+    <DashboardCard title="Upgrade or renew" subtitle="Requests go to Aurae Software Solutions. Your plan changes once they approve.">
+      {pending ? (
+        <p style={{ color: 'var(--amber)', fontWeight: 700 }}>
+          Request for {pending.to_plan_name} sent on {pending.created_at.slice(0, 10)}. Awaiting approval from Aurae Software Solutions.
+        </p>
+      ) : (
+        <button className="btn amber" onClick={openDialog}>{label}</button>
+      )}
+      {requests.length > 0 && (
+        <div className="table-scroll" style={{ marginTop: 16 }}>
+          <table>
+            <thead><tr><th>Requested</th><th>Plan</th><th>Status</th><th>Reply</th></tr></thead>
+            <tbody>
+              {requests.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.created_at.slice(0, 10)}</td>
+                  <td>{r.to_plan_name}</td>
+                  <td><StatusChip status={r.status} /></td>
+                  <td style={{ whiteSpace: 'normal' }}>{r.decision_note || <span className="muted">—</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {open && (
+        <Modal title={label} open onClose={() => setOpen(false)}>
+          {plans.length === 0 ? <p className="muted">No plans are available in {plan.currency} right now. Contact Aurae Software Solutions.</p> : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {plans.map((p) => (
+                <div
+                  key={p.id}
+                  role="radio" aria-checked={choice === p.id} tabIndex={0}
+                  onClick={() => setChoice(p.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setChoice(p.id) } }}
+                  style={{ display: 'flex', flexDirection: 'row', gap: 12, alignItems: 'center', textAlign: 'left', border: `2px solid ${choice === p.id ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }}
+                >
+                  <span aria-hidden style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid var(--accent)', background: choice === p.id ? 'var(--accent)' : 'transparent', flexShrink: 0 }} />
+                  <span style={{ flex: 1 }}>
+                    <strong>{p.name}</strong>
+                    <span className="muted" style={{ display: 'block', fontSize: 12 }}>
+                      {p.max_users} users · {p.max_invoices_per_month ?? 'Unlimited'} invoices/month
+                    </span>
+                  </span>
+                  <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{p.currency} {p.price.toFixed(2)} / {p.billing_cycle}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {pay && (pay.bank_name || pay.upi_id) && (
+            <div style={{ marginTop: 12, fontSize: 13, background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+              <strong>Pay Aurae Software Solutions</strong>
+              {pay.bank_name && <div>{pay.bank_name}{pay.account_name ? ` · ${pay.account_name}` : ''}{pay.account_number ? ` · A/C ${pay.account_number}` : ''}{pay.ifsc_code ? ` · ${pay.ifsc_code}` : ''}</div>}
+              {pay.upi_id && <div>UPI: {pay.upi_id}</div>}
+              {pay.notes && <div className="muted">{pay.notes}</div>}
+            </div>
+          )}
+          <div className="field" style={{ marginTop: 12 }}>
+            <label>Payment reference or note (optional)</label>
+            <input maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. UPI ref 4821…" />
+          </div>
+          {error && <p className="error-text">{error}</p>}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button className="btn amber" disabled={busy} onClick={submit}>{busy ? 'Sending…' : 'Send request'}</button>
+            <button className="btn" onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </Modal>
       )}
     </DashboardCard>
   )

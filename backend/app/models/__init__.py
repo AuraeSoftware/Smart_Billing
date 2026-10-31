@@ -10,6 +10,7 @@ from app.models.trial_claim import TrialClaim  # noqa: F401
 from app.models.payment import SubscriptionPayment  # noqa: F401
 from app.models.payment_settings import PlatformPaymentSettings, TenantPaymentGateway  # noqa: F401
 from app.models.currency_config import CurrencyRate, PlanCurrencyOverride  # noqa: F401
+from app.models.upgrade_request import PlanUpgradeRequest  # noqa: F401
 from app.models.catalog import CatalogItem  # noqa: F401
 from app.models.gst import TenantGstSettings, TenantTaxCode  # noqa: F401
 from app.models.billing import (  # noqa: F401

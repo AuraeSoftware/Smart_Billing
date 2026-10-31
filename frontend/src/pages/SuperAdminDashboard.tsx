@@ -72,13 +72,43 @@ export default function SuperAdminDashboard() {
     [session?.role],
   )
 
+  // Plan validity. Once the plan has expired the whole dashboard is locked:
+  // login still works, but only the plan / upgrade screen is available (the
+  // backend refuses every other tenant request too).
+  const [planStatus, setPlanStatus] = useState<PlanStatus | null>(null)
+  const loadPlanStatus = () => { apiFetch<PlanStatus>('/account/plan-status').then(setPlanStatus).catch(() => {}) }
+  useEffect(() => { loadPlanStatus() }, [])
+  const locked = !!planStatus?.expired
+
   useEffect(() => {
     // Pull the full document history into the offline cache on load, then
     // periodically while online (SOW 3.5).
+    if (locked) return
     if (isOnline()) syncAll().catch(() => {})
     const interval = setInterval(() => { if (isOnline()) syncAll().catch(() => {}) }, 60_000)
     return () => clearInterval(interval)
-  }, [])
+  }, [locked])
+
+  if (locked) {
+    const canUpgrade = session?.role === 'super_admin'
+    return (
+      <AppLayout
+        navItems={canUpgrade ? [{ key: 'my-plan', label: 'Plan & Upgrade', icon: 'star' }] : []}
+        activeKey="my-plan"
+        onNavigate={() => {}}
+      >
+        <div style={{ background: 'color-mix(in srgb, var(--red) 10%, transparent)', border: '1px solid var(--red)', borderRadius: 12, padding: '16px 18px', marginBottom: 20 }}>
+          <div style={{ fontWeight: 800, color: 'var(--red)', marginBottom: 4 }}>Your plan has expired</div>
+          <div style={{ fontSize: 14, color: 'var(--text-2)' }}>
+            {planStatus?.plan_name ? `${planStatus.plan_name} ended on ${planStatus.expires_at}. ` : ''}
+            The dashboard is disabled until the plan is renewed. Your invoices, quotations, receipts and customers are safe and will be available again once the renewal is approved.
+          </div>
+          {!canUpgrade && <div style={{ fontSize: 14, marginTop: 8 }}>Please ask your workspace owner (Super Admin) to renew the plan.</div>}
+        </div>
+        {canUpgrade && <MyPlanPage onPlanChanged={loadPlanStatus} />}
+      </AppLayout>
+    )
+  }
 
   return (
     <AppLayout
@@ -97,6 +127,19 @@ export default function SuperAdminDashboard() {
             <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Upload your branding (logo, header, footer) to activate invoicing, quotations, and receipts.</div>
           </div>
           <a className="btn amber" href={`/subscribe/${session.tenantId}/branding`}>Finish setup</a>
+        </div>
+      )}
+      {planStatus && !planStatus.expired && planStatus.days_left != null && planStatus.days_left <= 7 && (
+        <div style={{ background: 'color-mix(in srgb, var(--red) 8%, transparent)', border: '1px solid var(--red)', borderRadius: 12, padding: '12px 18px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 800, color: 'var(--red)' }}>
+              {planStatus.is_trial ? 'Your free trial ends' : 'Your plan ends'} {planStatus.days_left === 0 ? 'today' : `in ${planStatus.days_left} day${planStatus.days_left === 1 ? '' : 's'}`}
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+              {planStatus.pending_request ? 'Your upgrade request is awaiting approval.' : 'Upgrade now to keep your dashboard running without a break.'}
+            </div>
+          </div>
+          {session?.role === 'super_admin' && !planStatus.pending_request && <button className="btn amber" onClick={() => setTab('my-plan')}>Upgrade plan</button>}
         </div>
       )}
       <UsageBanner />
@@ -123,12 +166,21 @@ export default function SuperAdminDashboard() {
       {tab === 'team' && <TeamPage />}
       {tab === 'catalog' && <CatalogPage />}
       {tab === 'reports' && <TenantReportsPage />}
-      {tab === 'my-plan' && <MyPlanPage />}
+      {tab === 'my-plan' && <MyPlanPage onPlanChanged={loadPlanStatus} />}
       {tab === 'gst-manager' && <GstManagerPage />}
       {tab === 'credentials' && <TenantCredentialsPage />}
       {tab === 'settings' && <Settings />}
     </AppLayout>
   )
+}
+
+interface PlanStatus {
+  plan_name: string | null
+  is_trial: boolean
+  expires_at: string | null
+  days_left: number | null
+  expired: boolean
+  pending_request: boolean
 }
 
 interface TenantAnalytics {
@@ -553,6 +605,64 @@ function LineItemsEditor({ items, setItems }: { items: LineItem[]; setItems: (i:
   )
 }
 
+// ---- Summary cards + month/year filters shared by the Invoices and Receipts
+// pages. Purely derived from the list already loaded for the signed-in
+// workspace, so every user sees figures for their own transactions only.
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+function kpiMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : undefined, { style: 'currency', currency: currency || 'INR', maximumFractionDigits: 0 }).format(amount)
+  } catch {
+    return money(amount, currency)
+  }
+}
+
+function StatCard({ label, value, color, icon }: { label: string; value: string | number; color: string; icon: keyof typeof ICONS }) {
+  return (
+    <div className="kpi-card" style={{ borderLeft: `4px solid ${color}`, padding: '16px 18px', minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)' }}>{label}</div>
+        <span style={{ color: 'var(--text-3)', display: 'inline-flex' }}><Icon path={ICONS[icon]} size={22} /></span>
+      </div>
+      <div className="kpi-card-value" style={{ color, fontSize: 'clamp(19px, 5.4vw, 30px)', whiteSpace: 'nowrap' }}>{value}</div>
+    </div>
+  )
+}
+
+const filterSelectStyle = { width: 'auto', minWidth: 110, padding: '8px 12px', borderRadius: 10 } as const
+
+function DateFilters({
+  month, year, years, onMonth, onYear,
+}: { month: string; year: string; years: number[]; onMonth: (v: string) => void; onYear: (v: string) => void }) {
+  return (
+    <>
+      <select aria-label="Month" style={filterSelectStyle} value={month} onChange={(e) => onMonth(e.target.value)}>
+        <option value="all">All Months</option>
+        {MONTH_NAMES.map((m, i) => <option key={m} value={String(i + 1)}>{m}</option>)}
+      </select>
+      <select aria-label="Year" style={filterSelectStyle} value={year} onChange={(e) => onYear(e.target.value)}>
+        <option value="all">All Years</option>
+        {years.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+      </select>
+    </>
+  )
+}
+
+function inPeriod(dateStr: string, month: string, year: string): boolean {
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return true
+  if (year !== 'all' && d.getFullYear() !== Number(year)) return false
+  if (month !== 'all' && d.getMonth() + 1 !== Number(month)) return false
+  return true
+}
+
+function yearsFrom(dates: string[]): number[] {
+  const set = new Set<number>([new Date().getFullYear()])
+  dates.forEach((d) => { const y = new Date(d).getFullYear(); if (!isNaN(y)) set.add(y) })
+  return Array.from(set).sort((a, b) => b - a)
+}
+
 function InvoicesPanel({
   autoOpen, onAutoOpenHandled, prefillCustomerName, onPrefillHandled,
 }: {
@@ -577,6 +687,24 @@ function InvoicesPanel({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [payFor, setPayFor] = useState<{ inv: InvoiceRow; mode: 'full' | 'partial' } | null>(null)
   const [notice, setNotice] = useState<{ text: string; receiptId: string; receiptNumber: string } | null>(null)
+  // Summary-card / list filters (status, month, year — on issue date).
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [monthFilter, setMonthFilter] = useState('all')
+  const [yearFilter, setYearFilter] = useState('all')
+  const visibleInvoices = useMemo(
+    () => items.filter((i) => (statusFilter === 'all' || i.status === statusFilter) && inPeriod(i.issue_date, monthFilter, yearFilter)),
+    [items, statusFilter, monthFilter, yearFilter],
+  )
+  const invoiceYears = useMemo(() => yearsFrom(items.map((i) => i.issue_date)), [items])
+  const invoiceTotals = useMemo(() => {
+    // Cancelled invoices are not money anyone owes or has been billed.
+    const live = visibleInvoices.filter((i) => i.status !== 'cancelled')
+    const invoiced = live.reduce((a, i) => a + Number(i.grand_total), 0)
+    const received = live.reduce((a, i) => a + Number(i.amount_paid), 0)
+    const outstanding = live.reduce((a, i) => a + Math.max(Number(i.grand_total) - Number(i.amount_paid), 0), 0)
+    const overdue = live.filter((i) => i.is_overdue).reduce((a, i) => a + Math.max(Number(i.grand_total) - Number(i.amount_paid), 0), 0)
+    return { invoiced, received, outstanding, overdue }
+  }, [visibleInvoices])
 
   function resetForm() {
     setEditingId(null)
@@ -642,6 +770,13 @@ function InvoicesPanel({
   }
 
   return (
+    <>
+    <div className="kpi-grid">
+      <StatCard label="Total Invoiced" value={kpiMoney(invoiceTotals.invoiced, currency)} color="var(--green)" icon="invoice" />
+      <StatCard label="Received" value={kpiMoney(invoiceTotals.received, currency)} color="var(--accent-2, #2563eb)" icon="checkCircle" />
+      <StatCard label="Outstanding" value={kpiMoney(invoiceTotals.outstanding, currency)} color="var(--amber)" icon="revenue" />
+      <StatCard label="Overdue" value={kpiMoney(invoiceTotals.overdue, currency)} color="var(--red)" icon="alert" />
+    </div>
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Invoices</h2>
@@ -678,12 +813,22 @@ function InvoicesPanel({
           {!isOnline() && <p className="muted">You're offline — this will queue and sync automatically once you're back online.</p>}
         </div>
       )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '14px 0' }}>
+        <h3 style={{ margin: 0 }}>All Invoices</h3>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <select aria-label="Status" style={filterSelectStyle} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">All</option>
+            {['draft', 'sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'cancelled'].map((st) => <option key={st} value={st}>{st.replace('_', ' ')}</option>)}
+          </select>
+          <DateFilters month={monthFilter} year={yearFilter} years={invoiceYears} onMonth={setMonthFilter} onYear={setYearFilter} />
+        </div>
+      </div>
       {loading ? <p className="muted">Loading…</p> : (
         <div className="table-scroll">
           <table>
           <thead><tr><th>Number</th><th>Customer</th><th>Purpose</th><th>Issue date</th><th>Due date</th><th>Status</th><th>Total</th><th>Paid</th><th></th></tr></thead>
           <tbody>
-            {items.map((inv) => (
+            {visibleInvoices.map((inv) => (
               // SB, overdue highlight: Invoice.is_overdue already excludes drafts
               // (a document nobody's sent yet can't be late) and anything paid or
               // cancelled — same rule the Overview banner's count uses. This only
@@ -736,6 +881,7 @@ function InvoicesPanel({
         />
       )}
     </div>
+    </>
   )
 }
 
@@ -967,6 +1113,22 @@ function ReceiptsPanel() {
   const [reference, setReference] = useState('')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [methodFilter, setMethodFilter] = useState('all')
+  const [monthFilter, setMonthFilter] = useState('all')
+  const [yearFilter, setYearFilter] = useState('all')
+  const receiptMethods = useMemo(() => Array.from(new Set(items.map((r) => r.payment_method).filter(Boolean) as string[])), [items])
+  const receiptYears = useMemo(() => yearsFrom(items.map((r) => r.received_at)), [items])
+  const byMethod = useMemo(() => items.filter((r) => methodFilter === 'all' || r.payment_method === methodFilter), [items, methodFilter])
+  const visibleReceipts = useMemo(() => byMethod.filter((r) => inPeriod(r.received_at, monthFilter, yearFilter)), [byMethod, monthFilter, yearFilter])
+  const receiptTotals = useMemo(() => {
+    const now = new Date()
+    const thisMonth = byMethod.filter((r) => inPeriod(r.received_at, String(now.getMonth() + 1), String(now.getFullYear())))
+    return {
+      total: visibleReceipts.reduce((a, r) => a + Number(r.amount), 0),
+      month: thisMonth.reduce((a, r) => a + Number(r.amount), 0),
+      count: visibleReceipts.length,
+    }
+  }, [visibleReceipts, byMethod])
 
   async function onCreate() {
     setError(null)
@@ -995,6 +1157,12 @@ function ReceiptsPanel() {
   }
 
   return (
+    <>
+    <div className="kpi-grid">
+      <StatCard label="Total Received" value={kpiMoney(receiptTotals.total, currency)} color="var(--green)" icon="checkCircle" />
+      <StatCard label="This Month" value={kpiMoney(receiptTotals.month, currency)} color="var(--amber)" icon="clock" />
+      <StatCard label="Total Receipts" value={receiptTotals.count} color="var(--accent-2, #2563eb)" icon="receipt" />
+    </div>
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Receipts</h2>
@@ -1036,12 +1204,22 @@ function ReceiptsPanel() {
           <button className="btn amber" style={{ marginTop: 10 }} onClick={onCreate}>Save receipt</button>
         </div>
       )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '14px 0' }}>
+        <h3 style={{ margin: 0 }}>All Receipts</h3>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <select aria-label="Payment method" style={filterSelectStyle} value={methodFilter} onChange={(e) => setMethodFilter(e.target.value)}>
+            <option value="all">All Methods</option>
+            {receiptMethods.map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
+          </select>
+          <DateFilters month={monthFilter} year={yearFilter} years={receiptYears} onMonth={setMonthFilter} onYear={setYearFilter} />
+        </div>
+      </div>
       {loading ? <p className="muted">Loading…</p> : (
         <div className="table-scroll">
           <table>
           <thead><tr><th>Number</th><th>Purpose</th><th>Amount</th><th>Method</th><th>Reference</th><th>Received</th><th></th></tr></thead>
           <tbody>
-            {items.map((r) => (
+            {visibleReceipts.map((r) => (
               <tr key={r.id}>
                 <td>{r.number}</td>
                 <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{r.notes || <span className="muted">—</span>}</td>
@@ -1061,5 +1239,6 @@ function ReceiptsPanel() {
           </div>
       )}
     </div>
+    </>
   )
 }

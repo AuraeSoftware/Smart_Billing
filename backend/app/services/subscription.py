@@ -13,6 +13,7 @@ from app.models.tenant import Tenant, SubscriptionStatus
 from app.models.branding import TenantBranding
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.payment import SubscriptionPayment
+from app.services.plan_expiry import start_plan_term
 
 
 class OnboardingIncompleteError(Exception):
@@ -49,6 +50,8 @@ def activate_tenant(db: Session, *, tenant: Tenant) -> Tenant:
     if plan is not None and plan.is_trial:
         return tenant
     tenant.subscription_status = SubscriptionStatus.ACTIVE
+    if plan is not None:
+        start_plan_term(tenant, plan)
     db.add(tenant)
     return tenant
 
