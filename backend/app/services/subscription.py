@@ -42,6 +42,24 @@ def activate_tenant(db: Session, *, tenant: Tenant) -> Tenant:
             raise OnboardingIncompleteError(
                 "Payment must be completed before the workspace can be activated."
             )
+    # Trial workspaces are not self-activating: once branding is in, they
+    # wait in "pending_onboarding" for the Supreme Admin to approve them
+    # (Super Admins > Pending Onboarding > Activate tenant). Paid plans are
+    # unchanged: payment + branding activates them straight away.
+    if plan is not None and plan.is_trial:
+        return tenant
     tenant.subscription_status = SubscriptionStatus.ACTIVE
     db.add(tenant)
     return tenant
+
+
+def is_awaiting_approval(db: Session, tenant: Tenant) -> bool:
+    """True for a trial workspace that has finished signup + branding but
+    hasn't been approved by the Supreme Admin yet."""
+    if tenant.subscription_status != SubscriptionStatus.PENDING_ONBOARDING or tenant.subscription_plan_id is None:
+        return False
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tenant.subscription_plan_id).one_or_none()
+    if plan is None or not plan.is_trial:
+        return False
+    branding = db.query(TenantBranding).filter(TenantBranding.tenant_id == tenant.id).one_or_none()
+    return branding is not None and bool(branding.logo_url)

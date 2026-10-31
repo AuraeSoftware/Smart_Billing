@@ -7,6 +7,7 @@ from app.db.session import get_db
 from app.core.security import verify_password, create_access_token
 from app.models.user import User, UserRole
 from app.models.tenant import Tenant, SubscriptionStatus
+from app.services.subscription import is_awaiting_approval
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.services.device_binding import attempt_login, DeviceBindingError
 
@@ -38,6 +39,12 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
                 status.HTTP_403_FORBIDDEN,
                 f"This workspace has been {status_label} by the platform administrator. "
                 "Contact Aurae Software Solutions LLP for help.",
+            )
+        if is_awaiting_approval(db, tenant):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Your free trial workspace is awaiting approval from the platform administrator. "
+                "You'll be able to log in as soon as it is approved.",
             )
         tenant_status_val = tenant.subscription_status.value if hasattr(tenant.subscription_status, "value") else str(tenant.subscription_status)
 

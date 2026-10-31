@@ -14,6 +14,9 @@ export default function SubscribeBranding() {
   const [footerText, setFooterText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  // Free trial workspaces are approved by the platform administrator before
+  // first login; paid workspaces activate immediately, as before.
+  const [awaitingApproval, setAwaitingApproval] = useState(false)
 
   const preview = (file: File | null) => (file ? URL.createObjectURL(file) : null)
 
@@ -32,12 +35,29 @@ export default function SubscribeBranding() {
       fd.append('footer', footer)
       fd.append('footer_text', footerText)
       await apiFetch(`/subscription/${tenantId}/branding`, { method: 'POST', body: fd })
-      navigate('/login')
+      const pay = await apiFetch<{ status: string }>(`/subscription/${tenantId}/payment/status`).catch(() => null)
+      if (pay?.status === 'not_required') setAwaitingApproval(true)
+      else navigate('/login')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
+  }
+
+  if (awaitingApproval) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card card" style={{ textAlign: 'center' }}>
+          <h1>You're all set</h1>
+          <p className="muted">
+            Your free trial workspace has been created and is waiting for approval from the platform
+            administrator. You'll be able to log in as soon as it is approved.
+          </p>
+          <button className="btn" type="button" onClick={() => navigate('/login')}>Back to login</button>
+        </div>
+      </div>
+    )
   }
 
   return (

@@ -17,7 +17,7 @@ from app.db.session import get_db
 from app.core.config import settings
 from app.core.security import hash_password
 from app.api.deps import require_super_admin, current_tenant_id
-from app.models.tenant import Tenant
+from app.models.tenant import Tenant, SubscriptionStatus
 from app.models.user import User, UserRole
 from app.models.branding import TenantBranding
 from app.models.subscription_plan import SubscriptionPlan
@@ -329,11 +329,18 @@ def submit_branding(
     except OnboardingIncompleteError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
-    log_subscription_event(
-        db, tenant=tenant, event_type="activated",
-        old_value="pending_onboarding", new_value="active",
-        note="Branding assets uploaded; workspace activated.",
-    )
+    if tenant.subscription_status == SubscriptionStatus.ACTIVE:
+        log_subscription_event(
+            db, tenant=tenant, event_type="activated",
+            old_value="pending_onboarding", new_value="active",
+            note="Branding assets uploaded; workspace activated.",
+        )
+    else:
+        log_subscription_event(
+            db, tenant=tenant, event_type="awaiting_approval",
+            old_value="pending_onboarding", new_value="pending_onboarding",
+            note="Free trial branding uploaded; waiting for Supreme Admin approval.",
+        )
     db.commit()
     db.refresh(branding)
     return branding

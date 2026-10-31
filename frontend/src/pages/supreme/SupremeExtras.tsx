@@ -34,6 +34,7 @@ interface SuperAdminRow {
   tenant_currency: string | null
   plan_name: string | null
   created_at: string
+  awaiting_approval?: boolean
   invoices_used: number
   invoices_limit: number | null
   usage_percent: number
@@ -231,6 +232,7 @@ export function SuperAdminsPage({ initialView }: { initialView?: 'All' | 'Pendin
                     <span style={{ color: 'var(--text-3)' }}>Tenant: </span>
                     <span style={{ fontWeight: 700, color: 'var(--accent)' }}>{r.tenant_name || '—'}</span>
                     {r.tenant_status && <span style={{ marginLeft: 8 }}><StatusChip status={r.tenant_status} /></span>}
+                    {r.awaiting_approval && <span className="status-chip status-chip-blue" style={{ marginLeft: 6 }}>Awaiting approval</span>}
                   </div>
                   <div style={{ background: 'var(--bg-3)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 10px', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
                     <span><span style={{ color: 'var(--text-3)' }}>Plan: </span><span style={{ fontWeight: 700 }}>{r.plan_name || 'No plan'}</span></span>
@@ -281,7 +283,7 @@ export function SuperAdminsPage({ initialView }: { initialView?: 'All' | 'Pendin
                     Onboarding" until activated here. */}
                 {r.tenant_id && r.tenant_status === 'pending_onboarding' && (
                   <button className="btn" style={{ width: '100%', padding: 8 }} onClick={() => tenantAction(r, 'reactivate')}>
-                    Activate tenant
+                    {r.awaiting_approval ? 'Approve free trial workspace' : 'Activate tenant'}
                   </button>
                 )}
                 {r.tenant_id && r.tenant_status === 'active' && (

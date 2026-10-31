@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.api.deps import require_supreme_admin
 from app.models.tenant import Tenant, SubscriptionStatus
+from app.services.subscription import is_awaiting_approval
 from app.models.user import User, UserRole
 from app.models.device import DeviceEvent, DeviceEventType
 from app.models.subscription_plan import SubscriptionPlan
@@ -128,6 +129,8 @@ class SuperAdminRow(BaseModel):
     tenant_currency: str | None
     plan_name: str | None
     created_at: str
+    # Free-trial workspace that finished branding and is waiting for approval.
+    awaiting_approval: bool = False
     # Plan-usage tracking (SOW: the Supreme Admin tracks Super Admins and
     # the plan they're on, not their raw invoice/quotation business data) —
     # how many invoices this tenant has created against their plan's
@@ -162,6 +165,7 @@ def list_super_admins(db: Session = Depends(get_db), _: User = Depends(require_s
             tenant_currency=tenant.currency if tenant else None,
             plan_name=plan.name if plan else None,
             created_at=u.created_at.isoformat(),
+            awaiting_approval=is_awaiting_approval(db, tenant) if tenant else False,
             **usage,
         ))
     return rows
@@ -384,9 +388,14 @@ def reactivate_tenant(tenant_id: uuid.UUID, db: Session = Depends(get_db), admin
     if tenant is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant not found.")
     old_status = tenant.subscription_status.value if hasattr(tenant.subscription_status, "value") else str(tenant.subscription_status)
+    was_awaiting = is_awaiting_approval(db, tenant)
     tenant.subscription_status = SubscriptionStatus.ACTIVE
     db.add(tenant)
-    log_subscription_event(db, tenant=tenant, event_type="reactivated", changed_by=admin, old_value=old_status, new_value="active")
+    log_subscription_event(
+        db, tenant=tenant, event_type="approved" if was_awaiting else "reactivated",
+        changed_by=admin, old_value=old_status, new_value="active",
+        note="Free trial workspace approved." if was_awaiting else None,
+    )
     db.commit()
     return {"ok": True}
 
