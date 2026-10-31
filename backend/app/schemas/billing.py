@@ -47,6 +47,7 @@ class InvoiceCreate(BaseModel):
     customer_name: str
     customer_email: Optional[str] = None
     customer_address: Optional[str] = None
+    customer_phone: Optional[str] = None
     # SB04: optional — when the picker's "select existing" path is used the
     # frontend can send this id directly; when omitted (every existing call
     # site), the backend finds-or-creates a Customer by customer_name as
@@ -63,6 +64,8 @@ class InvoiceOut(BaseModel):
     number: str
     customer_name: str
     customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_address: Optional[str] = None
     status: str
     issue_date: date
     due_date: Optional[date]
@@ -93,6 +96,8 @@ class InvoiceOut(BaseModel):
 class QuotationCreate(BaseModel):
     customer_name: str
     customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_address: Optional[str] = None
     # SB04: same optional explicit-customer override as InvoiceCreate.
     customer_id: Optional[UUID] = None
     issue_date: date
@@ -106,6 +111,8 @@ class QuotationOut(BaseModel):
     number: str
     customer_name: str
     customer_email: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_address: Optional[str] = None
     status: str
     revision: int
     issue_date: date

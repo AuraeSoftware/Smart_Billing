@@ -444,7 +444,7 @@ function PlatformCommandCenter({
           )}
         </DashboardCard>
 
-        <DashboardCard title="Tenant revenue comparison" subtitle="All-time revenue collected, top tenants">
+        <DashboardCard title="Tenant revenue comparison" subtitle="Total money collected, top workspaces">
           {topTenantsForChart.length === 0 ? (
             <EmptyState icon={<Icon path={ICONS.building} size={22} />} title="No tenant revenue yet" />
           ) : (
@@ -469,7 +469,7 @@ function PlatformCommandCenter({
 
       {/* Tenant status mix — extra chart carried over from the previous build, kept for context */}
       <div className="chart-grid-2">
-        <DashboardCard title="Tenant status mix" subtitle="Where every workspace stands right now">
+        <DashboardCard title="Tenant status mix" subtitle="Where each workspace stands today">
           {statusDist.length === 0 ? (
             <EmptyState icon={<Icon path={ICONS.users} size={22} />} title="No tenants yet" />
           ) : (
@@ -485,7 +485,7 @@ function PlatformCommandCenter({
           )}
         </DashboardCard>
 
-        <DashboardCard title="Needs attention" subtitle="Suspended or still onboarding" action={<button className="btn ghost" onClick={onSelectTenants}>See all →</button>}>
+        <DashboardCard title="Needs attention" subtitle="Suspended, or not set up yet" action={<button className="btn ghost" onClick={onSelectTenants}>See all →</button>}>
           {tenantsNeedingAttention.length === 0 ? (
             <EmptyState icon={<Icon path={ICONS.building} size={22} />} title="Nothing needs attention" sub="Every tenant is active." />
           ) : (
@@ -546,7 +546,6 @@ function PlatformCommandCenter({
         {selectedTenant && (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--accent)' }}>{selectedTenant.slug}</span>
               <StatusChip status={selectedTenant.subscription_status} />
               {selectedTenant.rank === 1 && selectedTenant.revenue_collected > 0 && <span className="status-chip status-chip-amber">★ Rank #1</span>}
             </div>

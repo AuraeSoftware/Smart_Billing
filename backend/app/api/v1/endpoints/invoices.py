@@ -17,7 +17,7 @@ from app.schemas.billing import InvoiceCreate, InvoiceOut, InvoicePaymentIn, Inv
 from app.services.numbering import next_document_number
 from app.services.pdf import render_document_pdf
 from app.services.usage import invoices_this_month
-from app.api.v1.endpoints.customers import find_or_create_customer
+from app.api.v1.endpoints.customers import find_or_create_customer, remember_customer_details
 from app.api.v1.endpoints.receipts import record_receipt
 
 router = APIRouter()
@@ -35,6 +35,17 @@ _MANUAL_TRANSITIONS: dict[InvoiceStatus, set[InvoiceStatus]] = {
 
 class StatusUpdate(BaseModel):
     status: InvoiceStatus
+
+
+def _contact_lines(address, phone, email) -> list[str]:
+    lines: list[str] = []
+    if address:
+        lines += [ln.strip() for ln in str(address).splitlines() if ln.strip()][:4]
+    if phone:
+        lines.append(f"Phone: {phone}")
+    if email:
+        lines.append(f"Email: {email}")
+    return lines
 
 
 def _compute_totals(items: list[InvoiceItem]) -> tuple[float, float, float, float]:
@@ -81,12 +92,14 @@ def create_invoice(
     invoice = Invoice(
         tenant_id=tenant_id, number=number, customer_name=payload.customer_name,
         customer_email=payload.customer_email, customer_address=payload.customer_address,
+        customer_phone=payload.customer_phone,
         customer_id=customer_id_value,
         issue_date=payload.issue_date, due_date=payload.due_date, notes=payload.notes,
         created_by=user.id,
     )
     invoice.items = [InvoiceItem(**item.model_dump()) for item in payload.items]
     invoice.subtotal, invoice.tax_total, invoice.discount_total, invoice.grand_total = _compute_totals(invoice.items)
+    remember_customer_details(db, customer_id_value, payload.customer_email, payload.customer_phone, payload.customer_address)
     db.add(invoice)
     db.commit()
     db.refresh(invoice)
@@ -168,6 +181,9 @@ def update_invoice(
     invoice.customer_name = payload.customer_name
     invoice.customer_email = payload.customer_email
     invoice.customer_address = payload.customer_address
+    invoice.customer_phone = payload.customer_phone
+    if invoice.customer_id:
+        remember_customer_details(db, invoice.customer_id, payload.customer_email, payload.customer_phone, payload.customer_address)
     invoice.issue_date = payload.issue_date
     invoice.due_date = payload.due_date
     invoice.notes = payload.notes
@@ -249,6 +265,7 @@ def invoice_pdf(
     pdf_bytes = render_document_pdf(
         doc_type="INVOICE", number=invoice.number, tenant_name=tenant.name, branding=branding,
         customer_name=invoice.customer_name, issue_date=invoice.issue_date.isoformat(),
+        customer_lines=_contact_lines(invoice.customer_address, invoice.customer_phone, invoice.customer_email),
         meta_lines=[f"Due: {invoice.due_date.isoformat()}"] if invoice.due_date else [],
         line_items=[
             {"description": i.description, "quantity": i.quantity, "unit_price": f"{cur} {float(i.unit_price):,.2f}", "line_total": f"{cur} {float(i.line_total):,.2f}"}

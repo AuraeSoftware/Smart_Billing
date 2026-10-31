@@ -59,6 +59,22 @@ def list_customers(
     return [_out(c) for c in query.order_by(Customer.name).limit(50).all()]
 
 
+def remember_customer_details(db: Session, customer_id, email: str | None, phone: str | None, address: str | None) -> None:
+    """Saves contact details typed on a document onto the Customer record,
+    but only into fields that are still empty — never overwrites what is
+    already on file."""
+    c = db.query(Customer).filter(Customer.id == customer_id).one_or_none()
+    if c is None:
+        return
+    changed = False
+    for attr, value in (('email', email), ('phone', phone), ('address', address)):
+        if value and not getattr(c, attr):
+            setattr(c, attr, value)
+            changed = True
+    if changed:
+        db.add(c)
+
+
 def find_or_create_customer(db: Session, tenant_id: str, name: str, email: str | None) -> Customer:
     """Shared by invoices.py/quotations.py create_* endpoints: matches the
     same (tenant, lower(trim(name))) key the Customers aggregation page and

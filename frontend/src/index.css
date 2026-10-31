@@ -433,6 +433,9 @@ tbody tr:hover { background: var(--card-hover); }
 .tabs { display: none; } /* tabs replaced by sidebar nav in dashboard shells */
 
 .item-row { display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.item-row > * { min-width: 0; }
+.item-row input { box-sizing: border-box; width: 100%; }
+.item-row > button { white-space: nowrap; }
 .item-row input {
   padding: 7px 9px;
   border: 1px solid var(--border-2);

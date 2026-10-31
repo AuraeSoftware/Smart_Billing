@@ -45,8 +45,8 @@ const SUPER_ADMIN_ONLY_KEYS = new Set(['team', 'catalog', 'gst-manager'])
 
 interface LineItem { description: string; quantity: number; unit_price: number; tax_rate_percent: number; discount_percent: number }
 
-interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string; due_date?: string | null; notes?: string | null; is_overdue?: boolean; customer_id?: string | null; items?: LineItem[] }
-interface QuotationRow { id: string; number: string; customer_name: string; status: string; grand_total: number; issue_date: string; valid_until?: string | null; notes?: string | null }
+interface InvoiceRow { id: string; number: string; customer_name: string; status: string; grand_total: number; amount_paid: number; issue_date: string; due_date?: string | null; notes?: string | null; is_overdue?: boolean; customer_id?: string | null; customer_email?: string | null; customer_phone?: string | null; customer_address?: string | null; items?: LineItem[] }
+interface QuotationRow { id: string; number: string; customer_name: string; customer_email?: string | null; customer_phone?: string | null; customer_address?: string | null; status: string; grand_total: number; issue_date: string; valid_until?: string | null; notes?: string | null }
 interface ReceiptRow { id: string; number: string; invoice_id: string; amount: number; payment_method?: string | null; payment_reference?: string | null; notes?: string | null; received_at: string }
 
 const emptyItem = (): LineItem => ({ description: '', quantity: 1, unit_price: 0, tax_rate_percent: 0, discount_percent: 0 })
@@ -101,7 +101,7 @@ export default function SuperAdminDashboard() {
           <div style={{ fontWeight: 800, color: 'var(--red)', marginBottom: 4 }}>Your plan has expired</div>
           <div style={{ fontSize: 14, color: 'var(--text-2)' }}>
             {planStatus?.plan_name ? `${planStatus.plan_name} ended on ${planStatus.expires_at}. ` : ''}
-            The dashboard is disabled until the plan is renewed. Your invoices, quotations, receipts and customers are safe and will be available again once the renewal is approved.
+            The dashboard is locked until you renew. Your invoices, quotations, receipts and customers are safe. They will be back as soon as your renewal is approved.
           </div>
           {!canUpgrade && <div style={{ fontSize: 14, marginTop: 8 }}>Please ask your workspace owner (Super Admin) to renew the plan.</div>}
         </div>
@@ -124,7 +124,7 @@ export default function SuperAdminDashboard() {
         <div style={{ background: 'var(--highlight-dim)', border: '1px solid var(--amber)', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
             <div style={{ fontWeight: 800, color: 'var(--amber)', marginBottom: 2 }}>Finish setting up your workspace</div>
-            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Upload your branding (logo, header, footer) to activate invoicing, quotations, and receipts.</div>
+            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Upload your logo, header and footer to start creating invoices, quotations and receipts.</div>
           </div>
           <a className="btn amber" href={`/subscribe/${session.tenantId}/branding`}>Finish setup</a>
         </div>
@@ -335,9 +335,9 @@ function OverviewPanel({ onNav, onQuickNewInvoice }: { onNav: (key: 'invoices' |
       </div>
 
       <div className="kpi-grid">
-        <KpiCard icon={<Icon path={ICONS.revenue} size={18} />} label="Total revenue" value={stats.revenue_collected.toLocaleString()} sub={`${stats.last_30_days_revenue.toLocaleString()} in the last 30 days`} color="var(--accent)" />
-        <KpiCard icon={<Icon path={ICONS.invoice} size={18} />} label="Total invoices" value={stats.invoice_count} sub={`${stats.overdue_invoice_count} overdue`} color="var(--accent-2)" />
-        <KpiCard icon={<Icon path={ICONS.alert} size={18} />} label="Outstanding receivables" value={stats.outstanding_receivables.toLocaleString()} sub="not yet collected" color="var(--green)" />
+        <KpiCard icon={<Icon path={ICONS.revenue} size={18} />} label="Total revenue" value={stats.revenue_collected.toLocaleString()} sub={`${stats.last_30_days_revenue.toLocaleString()} in the last 30 days`} color="var(--accent)" onClick={() => onNav('receipts')} />
+        <KpiCard icon={<Icon path={ICONS.invoice} size={18} />} label="Total invoices" value={stats.invoice_count} sub={`${stats.overdue_invoice_count} overdue`} color="var(--accent-2)" onClick={() => onNav('invoices')} />
+        <KpiCard icon={<Icon path={ICONS.alert} size={18} />} label="Outstanding receivables" value={stats.outstanding_receivables.toLocaleString()} sub="not yet collected" color="var(--green)" onClick={() => onNav('invoices')} />
       </div>
 
       {/* Charts row — Revenue by Day of Week + Invoice Status Split, matching Smart Garage's 3:2 split */}
@@ -485,7 +485,10 @@ function useTenantCurrency(): string {
 }
 
 function money(amount: number | string, currency: string): string {
-  return `${currency ? currency + ' ' : ''}${Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  // Whole amounts show without trailing zeros (50,000), amounts with paise/cents keep two decimals.
+  const n = Number(amount)
+  const digits = Number.isInteger(n) ? 0 : 2
+  return `${currency ? currency + ' ' : ''}${n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: 2 })}`
 }
 
 // SB04 — searchable select-or-create customer field, shared by the invoice
@@ -495,7 +498,7 @@ function money(amount: number | string, currency: string): string {
 // leaves customer_id unset so the backend finds-or-creates one by name, same
 // as before this feature existed — nothing about the plain customer_name
 // text field's required-ness or shape changes.
-interface CustomerOption { id: string; name: string; email: string | null }
+interface CustomerOption { id: string; name: string; email: string | null; phone?: string | null; address?: string | null }
 
 function useCustomerDirectory() {
   const [customers, setCustomers] = useState<CustomerOption[]>([])
@@ -503,33 +506,58 @@ function useCustomerDirectory() {
   return customers
 }
 
+/** Contact details typed on an invoice or quotation. */
+interface CustomerContact { email: string; phone: string; address: string }
+const emptyContact: CustomerContact = { email: '', phone: '', address: '' }
+
 function CustomerField({
-  datalistId, customers, name, onNameChange, onCustomerSelected,
+  datalistId, customers, name, onNameChange, onCustomerSelected, contact, onContactChange,
 }: {
   datalistId: string
   customers: CustomerOption[]
   name: string
   onNameChange: (name: string) => void
   onCustomerSelected: (customer: CustomerOption | null) => void
+  contact: CustomerContact
+  onContactChange: (c: CustomerContact) => void
 }) {
   return (
-    <div className="field">
-      <label>Customer name</label>
-      <input
-        list={datalistId}
-        value={name}
-        required
-        onChange={(e) => {
-          const value = e.target.value
-          onNameChange(value)
-          const match = customers.find((c) => c.name.toLowerCase() === value.trim().toLowerCase())
-          onCustomerSelected(match || null)
-        }}
-      />
-      <datalist id={datalistId}>
-        {customers.map((c) => <option key={c.id} value={c.name} />)}
-      </datalist>
-    </div>
+    <>
+      <div className="field">
+        <label>Customer name</label>
+        <input
+          list={datalistId}
+          value={name}
+          required
+          placeholder="Type a name, or pick a saved customer"
+          onChange={(e) => {
+            const value = e.target.value
+            onNameChange(value)
+            const match = customers.find((c) => c.name.toLowerCase() === value.trim().toLowerCase())
+            onCustomerSelected(match || null)
+            // A saved customer fills in their details; you can still change them.
+            if (match) onContactChange({ email: match.email || '', phone: match.phone || '', address: match.address || '' })
+          }}
+        />
+        <datalist id={datalistId}>
+          {customers.map((c) => <option key={c.id} value={c.name} />)}
+        </datalist>
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+        <div className="field" style={{ flex: 1, minWidth: 180 }}>
+          <label>Phone number</label>
+          <input type="tel" inputMode="tel" placeholder="+91 98765 43210" value={contact.phone} onChange={(e) => onContactChange({ ...contact, phone: e.target.value })} />
+        </div>
+        <div className="field" style={{ flex: 1, minWidth: 180 }}>
+          <label>Email</label>
+          <input type="email" placeholder="name@company.com" value={contact.email} onChange={(e) => onContactChange({ ...contact, email: e.target.value })} />
+        </div>
+      </div>
+      <div className="field">
+        <label>Address</label>
+        <textarea rows={2} placeholder="Street, city, PIN code" value={contact.address} onChange={(e) => onContactChange({ ...contact, address: e.target.value })} />
+      </div>
+    </>
   )
 }
 
@@ -583,20 +611,20 @@ function LineItemsEditor({ items, setItems }: { items: LineItem[]; setItems: (i:
           column (see index.css); each input carries its own placeholder
           there instead, so meaning survives the stack. */}
       <div className="item-row item-row-head" style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 600 }}>
-        <span>Description</span><span>Qty</span><span>Unit price</span><span>Tax %</span><span>Disc %</span><span></span>
+        <span>Item</span><span>Qty</span><span>Price</span><span>Tax %</span><span>Discount %</span><span></span>
       </div>
       {items.map((it, i) => (
         <div className="item-row" key={i}>
-          <input placeholder="Item description" value={it.description} onChange={(e) => update(i, { description: e.target.value })} required />
+          <input placeholder="What are you billing for?" value={it.description} onChange={(e) => update(i, { description: e.target.value })} required />
           {/* SB01: bounds matching the backend's LineItemIn validation
               (schemas/billing.py) — quantity > 0, price >= 0, tax/discount
               0-100% — so the browser's own number-input affordance (spinner
               clamping, red outline on out-of-range) catches the mistake
               before the request round-trips to the server's 422. */}
-          <input type="number" step="0.01" min={0.01} placeholder="Qty" value={it.quantity} onChange={(e) => update(i, { quantity: Number(e.target.value) })} />
-          <input type="number" step="0.01" min={0} placeholder="Unit price" value={it.unit_price} onChange={(e) => update(i, { unit_price: Number(e.target.value) })} />
-          <input type="number" step="0.01" min={0} max={100} placeholder="Tax %" value={it.tax_rate_percent} onChange={(e) => update(i, { tax_rate_percent: Number(e.target.value) })} />
-          <input type="number" step="0.01" min={0} max={100} placeholder="Disc %" value={it.discount_percent} onChange={(e) => update(i, { discount_percent: Number(e.target.value) })} />
+          <input type="number" step="0.01" min={0.01} placeholder="Qty" value={it.quantity === 0 ? '' : it.quantity} onChange={(e) => update(i, { quantity: Number(e.target.value) })} />
+          <input type="number" step="0.01" min={0} placeholder="Price" value={it.unit_price === 0 ? '' : it.unit_price} onChange={(e) => update(i, { unit_price: Number(e.target.value) })} />
+          <input type="number" step="0.01" min={0} max={100} placeholder="Tax %" value={it.tax_rate_percent === 0 ? '' : it.tax_rate_percent} onChange={(e) => update(i, { tax_rate_percent: Number(e.target.value) })} />
+          <input type="number" step="0.01" min={0} max={100} placeholder="Discount %" value={it.discount_percent === 0 ? '' : it.discount_percent} onChange={(e) => update(i, { discount_percent: Number(e.target.value) })} />
           <button type="button" className="btn secondary" onClick={() => setItems(items.filter((_, idx) => idx !== i))}>✕ Remove</button>
         </div>
       ))}
@@ -618,9 +646,17 @@ function kpiMoney(amount: number, currency: string): string {
   }
 }
 
-function StatCard({ label, value, color, icon }: { label: string; value: string | number; color: string; icon: keyof typeof ICONS }) {
+function StatCard({ label, value, color, icon, onClick, active }: { label: string; value: string | number; color: string; icon: keyof typeof ICONS; onClick?: () => void; active?: boolean }) {
   return (
-    <div className="kpi-card" style={{ borderLeft: `4px solid ${color}`, padding: '16px 18px', minWidth: 0 }}>
+    <div
+      className="kpi-card"
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
+      title={onClick ? 'Click to filter the list below' : undefined}
+      style={{ borderLeft: `4px solid ${color}`, padding: '16px 18px', minWidth: 0, ...(onClick ? { cursor: 'pointer' } : {}), ...(active ? { boxShadow: `0 0 0 2px ${color}` } : {}) }}
+    >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 12 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)' }}>{label}</div>
         <span style={{ color: 'var(--text-3)', display: 'inline-flex' }}><Icon path={ICONS[icon]} size={22} /></span>
@@ -663,6 +699,11 @@ function yearsFrom(dates: string[]): number[] {
   return Array.from(set).sort((a, b) => b - a)
 }
 
+function ContactLines({ email, phone }: { email?: string | null; phone?: string | null }) {
+  if (!email && !phone) return null
+  return <div className="muted" style={{ fontSize: 12, fontWeight: 400 }}>{[phone, email].filter(Boolean).join(' · ')}</div>
+}
+
 function InvoicesPanel({
   autoOpen, onAutoOpenHandled, prefillCustomerName, onPrefillHandled,
 }: {
@@ -677,6 +718,7 @@ function InvoicesPanel({
   const [showForm, setShowForm] = useState(false)
   const [customerName, setCustomerName] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
+  const [contact, setContact] = useState<CustomerContact>(emptyContact)
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10))
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
@@ -692,7 +734,15 @@ function InvoicesPanel({
   const [monthFilter, setMonthFilter] = useState('all')
   const [yearFilter, setYearFilter] = useState('all')
   const visibleInvoices = useMemo(
-    () => items.filter((i) => (statusFilter === 'all' || i.status === statusFilter) && inPeriod(i.issue_date, monthFilter, yearFilter)),
+    () => items.filter((i) => {
+      // "overdue" is worked out from the due date (it is never a saved status).
+      const statusOk =
+        statusFilter === 'all' ||
+        (statusFilter === 'overdue' ? !!i.is_overdue : statusFilter === 'unpaid'
+          ? !['paid', 'cancelled', 'draft'].includes(i.status)
+          : i.status === statusFilter)
+      return statusOk && inPeriod(i.issue_date, monthFilter, yearFilter)
+    }),
     [items, statusFilter, monthFilter, yearFilter],
   )
   const invoiceYears = useMemo(() => yearsFrom(items.map((i) => i.issue_date)), [items])
@@ -708,7 +758,7 @@ function InvoicesPanel({
 
   function resetForm() {
     setEditingId(null)
-    setCustomerName(''); setCustomerId(null); setItems2([emptyItem()]); setNotes(''); setDueDate('')
+    setCustomerName(''); setCustomerId(null); setContact(emptyContact); setItems2([emptyItem()]); setNotes(''); setDueDate('')
     setIssueDate(new Date().toISOString().slice(0, 10))
   }
 
@@ -717,6 +767,7 @@ function InvoicesPanel({
     setEditingId(inv.id)
     setCustomerName(inv.customer_name)
     setCustomerId(inv.customer_id || null)
+    setContact({ email: inv.customer_email || '', phone: inv.customer_phone || '', address: inv.customer_address || '' })
     setIssueDate(inv.issue_date)
     setDueDate(inv.due_date || '')
     setNotes(inv.notes || '')
@@ -744,6 +795,7 @@ function InvoicesPanel({
       setCustomerName(prefillCustomerName)
       const match = customers.find((c) => c.name.toLowerCase() === prefillCustomerName.trim().toLowerCase())
       setCustomerId(match?.id || null)
+      if (match) setContact({ email: match.email || '', phone: match.phone || '', address: match.address || '' })
       onPrefillHandled?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -751,7 +803,11 @@ function InvoicesPanel({
 
   async function onCreate() {
     setError(null)
-    const payload = { customer_name: customerName, customer_id: customerId || undefined, issue_date: issueDate, due_date: dueDate || null, notes: notes || null, items: items2 }
+    const payload = {
+      customer_name: customerName, customer_id: customerId || undefined,
+      customer_email: contact.email || null, customer_phone: contact.phone || null, customer_address: contact.address || null,
+      issue_date: issueDate, due_date: dueDate || null, notes: notes || null, items: items2,
+    }
     try {
       if (editingId) {
         if (!isOnline()) { setError('You need to be online to edit an invoice.'); return }
@@ -772,10 +828,10 @@ function InvoicesPanel({
   return (
     <>
     <div className="kpi-grid">
-      <StatCard label="Total Invoiced" value={kpiMoney(invoiceTotals.invoiced, currency)} color="var(--green)" icon="invoice" />
-      <StatCard label="Received" value={kpiMoney(invoiceTotals.received, currency)} color="var(--accent-2, #2563eb)" icon="checkCircle" />
-      <StatCard label="Outstanding" value={kpiMoney(invoiceTotals.outstanding, currency)} color="var(--amber)" icon="revenue" />
-      <StatCard label="Overdue" value={kpiMoney(invoiceTotals.overdue, currency)} color="var(--red)" icon="alert" />
+      <StatCard label="Total Invoiced" value={kpiMoney(invoiceTotals.invoiced, currency)} color="var(--green)" icon="invoice" onClick={() => setStatusFilter('all')} active={statusFilter === 'all'} />
+      <StatCard label="Received" value={kpiMoney(invoiceTotals.received, currency)} color="var(--accent-2, #2563eb)" icon="checkCircle" onClick={() => setStatusFilter('paid')} active={statusFilter === 'paid'} />
+      <StatCard label="Outstanding" value={kpiMoney(invoiceTotals.outstanding, currency)} color="var(--amber)" icon="revenue" onClick={() => setStatusFilter('unpaid')} active={statusFilter === 'unpaid'} />
+      <StatCard label="Overdue" value={kpiMoney(invoiceTotals.overdue, currency)} color="var(--red)" icon="alert" onClick={() => setStatusFilter('overdue')} active={statusFilter === 'overdue'} />
     </div>
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -798,19 +854,21 @@ function InvoicesPanel({
             name={customerName}
             onNameChange={setCustomerName}
             onCustomerSelected={(c) => setCustomerId(c?.id || null)}
+            contact={contact}
+            onContactChange={setContact}
           />
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Issue date</label><input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
             <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Due date</label><input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
           </div>
           <div className="field">
-            <label>Purpose (what this invoice is for)</label>
+            <label>What is this invoice for? (optional)</label>
             <input placeholder="e.g. Website design — milestone 2" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           <LineItemsEditor items={items2} setItems={setItems2} />
           {error && <p className="error-text">{error}</p>}
           <button className="btn amber" style={{ marginTop: 10 }} onClick={onCreate}>{editingId ? 'Update invoice' : 'Save invoice'}</button>
-          {!isOnline() && <p className="muted">You're offline — this will queue and sync automatically once you're back online.</p>}
+          {!isOnline() && <p className="muted">You are offline. We will save this and send it when you are back online.</p>}
         </div>
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '14px 0' }}>
@@ -818,6 +876,7 @@ function InvoicesPanel({
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <select aria-label="Status" style={filterSelectStyle} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="all">All</option>
+            <option value="unpaid">Unpaid</option>
             {['draft', 'sent', 'viewed', 'partially_paid', 'paid', 'overdue', 'cancelled'].map((st) => <option key={st} value={st}>{st.replace('_', ' ')}</option>)}
           </select>
           <DateFilters month={monthFilter} year={yearFilter} years={invoiceYears} onMonth={setMonthFilter} onYear={setYearFilter} />
@@ -836,7 +895,8 @@ function InvoicesPanel({
               // Status column, which keeps showing the real sent/viewed/
               // partially_paid workflow status exactly as before.
               <tr key={inv.id} style={inv.is_overdue ? { background: 'color-mix(in srgb, var(--red) 8%, transparent)' } : undefined}>
-                <td>{inv.number}</td><td>{inv.customer_name}</td>
+                <td>{inv.number}</td>
+                <td>{inv.customer_name}<ContactLines email={inv.customer_email} phone={inv.customer_phone} /></td>
                 <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{inv.notes || <span className="muted">—</span>}</td>
                 <td>{inv.issue_date}</td>
                 <td style={inv.is_overdue ? { color: 'var(--red)', fontWeight: 700 } : undefined}>
@@ -930,7 +990,7 @@ function InvoicePaymentModal({
 
   return (
     <Modal title={mode === 'full' ? `Fully paid · ${invoice.number}` : `Partially paid · ${invoice.number}`} open onClose={onClose}>
-      <p className="muted">Outstanding balance: <strong>{money(remaining, currency)}</strong>. A receipt is generated automatically.</p>
+      <p className="muted">Outstanding balance: <strong>{money(remaining, currency)}</strong>. A receipt is created for you automatically.</p>
       {mode === 'partial' ? (
         <div className="field"><label>Amount received</label><input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
       ) : (
@@ -987,6 +1047,25 @@ function QuotationsPanel() {
   const [showForm, setShowForm] = useState(false)
   const [customerName, setCustomerName] = useState('')
   const [customerId, setCustomerId] = useState<string | null>(null)
+  const [contact, setContact] = useState<CustomerContact>(emptyContact)
+  // Summary-card / list filters (status, month, year — on issue date).
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [monthFilter, setMonthFilter] = useState('all')
+  const [yearFilter, setYearFilter] = useState('all')
+  const visibleQuotations = useMemo(
+    () => items.filter((q) => (statusFilter === 'all' || q.status === statusFilter) && inPeriod(q.issue_date, monthFilter, yearFilter)),
+    [items, statusFilter, monthFilter, yearFilter],
+  )
+  const quotationYears = useMemo(() => yearsFrom(items.map((q) => q.issue_date)), [items])
+  const quotationTotals = useMemo(() => {
+    const sum = (list: QuotationRow[]) => list.reduce((a, q) => a + Number(q.grand_total), 0)
+    // Totals follow the month/year filter but not the status filter, so each card always shows its own figure.
+    const inRange = items.filter((q) => inPeriod(q.issue_date, monthFilter, yearFilter))
+    return {
+      quoted: sum(inRange), accepted: sum(inRange.filter((q) => q.status === 'accepted')),
+      waiting: sum(inRange.filter((q) => q.status === 'sent')), converted: sum(inRange.filter((q) => q.status === 'converted')),
+    }
+  }, [items, monthFilter, yearFilter])
   const [issueDate, setIssueDate] = useState(new Date().toISOString().slice(0, 10))
   const [validUntil, setValidUntil] = useState('')
   const [notes, setNotes] = useState('')
@@ -995,7 +1074,11 @@ function QuotationsPanel() {
 
   async function onCreate() {
     setError(null)
-    const payload = { customer_name: customerName, customer_id: customerId || undefined, issue_date: issueDate, valid_until: validUntil || null, notes: notes || null, items: items2 }
+    const payload = {
+      customer_name: customerName, customer_id: customerId || undefined,
+      customer_email: contact.email || null, customer_phone: contact.phone || null, customer_address: contact.address || null,
+      issue_date: issueDate, valid_until: validUntil || null, notes: notes || null, items: items2,
+    }
     try {
       if (isOnline()) {
         await apiFetch('/quotations', { method: 'POST', body: JSON.stringify(payload) })
@@ -1003,7 +1086,7 @@ function QuotationsPanel() {
         await queueOfflineCreate('quotations', payload)
       }
       setShowForm(false)
-      setCustomerName(''); setCustomerId(null); setItems2([emptyItem()]); setNotes('')
+      setCustomerName(''); setCustomerId(null); setContact(emptyContact); setItems2([emptyItem()]); setNotes('')
       reload()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create quotation.')
@@ -1016,6 +1099,13 @@ function QuotationsPanel() {
   }
 
   return (
+    <>
+    <div className="kpi-grid">
+      <StatCard label="Total Quoted" value={kpiMoney(quotationTotals.quoted, currency)} color="var(--green)" icon="quotation" onClick={() => setStatusFilter('all')} active={statusFilter === 'all'} />
+      <StatCard label="Accepted" value={kpiMoney(quotationTotals.accepted, currency)} color="var(--accent-2, #2563eb)" icon="checkCircle" onClick={() => setStatusFilter('accepted')} active={statusFilter === 'accepted'} />
+      <StatCard label="Awaiting Reply" value={kpiMoney(quotationTotals.waiting, currency)} color="var(--amber)" icon="clock" onClick={() => setStatusFilter('sent')} active={statusFilter === 'sent'} />
+      <StatCard label="Turned into Invoices" value={kpiMoney(quotationTotals.converted, currency)} color="var(--red)" icon="invoice" onClick={() => setStatusFilter('converted')} active={statusFilter === 'converted'} />
+    </div>
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Quotations</h2>
@@ -1029,13 +1119,15 @@ function QuotationsPanel() {
             name={customerName}
             onNameChange={setCustomerName}
             onCustomerSelected={(c) => setCustomerId(c?.id || null)}
+            contact={contact}
+            onContactChange={setContact}
           />
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Issue date</label><input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
             <div className="field" style={{ flex: 1, minWidth: 140 }}><label>Valid until</label><input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></div>
           </div>
           <div className="field">
-            <label>Purpose (what this quotation is for)</label>
+            <label>What is this quotation for? (optional)</label>
             <input placeholder="e.g. Branding package — logo + guidelines" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           <LineItemsEditor items={items2} setItems={setItems2} />
@@ -1043,14 +1135,25 @@ function QuotationsPanel() {
           <button className="btn amber" style={{ marginTop: 10 }} onClick={onCreate}>Save quotation</button>
         </div>
       )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '14px 0' }}>
+        <h3 style={{ margin: 0 }}>All Quotations</h3>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <select aria-label="Status" style={filterSelectStyle} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="all">All</option>
+            {['draft', 'sent', 'accepted', 'declined', 'expired', 'converted'].map((st) => <option key={st} value={st}>{st}</option>)}
+          </select>
+          <DateFilters month={monthFilter} year={yearFilter} years={quotationYears} onMonth={setMonthFilter} onYear={setYearFilter} />
+        </div>
+      </div>
       {loading ? <p className="muted">Loading…</p> : (
         <div className="table-scroll">
           <table>
           <thead><tr><th>Number</th><th>Customer</th><th>Purpose</th><th>Issue date</th><th>Valid until</th><th>Status</th><th>Total</th><th></th></tr></thead>
           <tbody>
-            {items.map((q) => (
+            {visibleQuotations.map((q) => (
               <tr key={q.id}>
-                <td>{q.number}</td><td>{q.customer_name}</td>
+                <td>{q.number}</td>
+                <td>{q.customer_name}<ContactLines email={q.customer_email} phone={q.customer_phone} /></td>
                 <td style={{ maxWidth: 220, whiteSpace: 'normal' }}>{q.notes || <span className="muted">—</span>}</td>
                 <td>{q.issue_date}</td><td>{q.valid_until || <span className="muted">—</span>}</td>
                 <td><StatusChip status={q.status} /></td>
@@ -1069,6 +1172,7 @@ function QuotationsPanel() {
           </div>
       )}
     </div>
+    </>
   )
 }
 
@@ -1178,7 +1282,7 @@ function ReceiptsPanel() {
             </select>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
-            <div className="field" style={{ flex: 1 }}><label>Amount received</label><input type="number" step="0.01" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></div>
+            <div className="field" style={{ flex: 1 }}><label>Amount received</label><input type="number" step="0.01" min={0} placeholder="0.00" value={amount === 0 ? '' : amount} onChange={(e) => setAmount(Number(e.target.value))} /></div>
             <div className="field" style={{ flex: 1 }}><label>Date received</label><input type="date" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} /></div>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -1192,12 +1296,12 @@ function ReceiptsPanel() {
               </select>
             </div>
             <div className="field" style={{ flex: 1, minWidth: 160 }}>
-              <label>Reference (UTR / txn ID)</label>
+              <label>Payment reference (optional)</label>
               <input placeholder="Optional" value={reference} onChange={(e) => setReference(e.target.value)} />
             </div>
           </div>
           <div className="field">
-            <label>Purpose (what this payment is for)</label>
+            <label>What is this payment for? (optional)</label>
             <input placeholder="e.g. Advance against milestone 2" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           {error && <p className="error-text">{error}</p>}

@@ -54,6 +54,7 @@ class Invoice(Base):
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     customer_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     customer_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    customer_phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     # SB04: optional link to the real Customer entity — customer_name/email
     # above are untouched (still what's required, still what PDFs print) so
     # every existing call site keeps working unchanged; this is populated
@@ -127,6 +128,8 @@ class Quotation(Base):
     number: Mapped[str] = mapped_column(String(50), nullable=False)
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     customer_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    customer_phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    customer_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # SB04: same optional Customer link as Invoice, same backward-compatible
     # reasoning — customer_name/email are untouched.
     customer_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)

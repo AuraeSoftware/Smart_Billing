@@ -790,7 +790,7 @@ export function CurrencyConfigPage() {
   return (
     <DashboardCard
       title="Currency Configuration"
-      subtitle="Live exchange rates against INR (the platform base currency), editable per currency, plus manual plan price overrides."
+      subtitle="Live exchange rates against INR (our base currency). You can edit any rate and set plan prices by hand."
       action={
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {lastRefreshed && <span className="muted" style={{ fontSize: 11 }}>Refreshed {lastRefreshed}</span>}
@@ -1029,7 +1029,7 @@ export function PaymentSettingsPage() {
 
   return (
     <div style={{ display: 'grid', gap: 20 }}>
-      <DashboardCard title="Razorpay Configuration" subtitle="These keys are used to collect subscription payments from tenants. Secrets are never shown again after saving.">
+      <DashboardCard title="Razorpay Configuration" subtitle="Used to collect plan payments from workspaces. Secret keys are hidden after you save.">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
           <label>Razorpay Key ID<input value={form.razorpay_key_id || ''} onChange={(e) => setForm({ ...form, razorpay_key_id: e.target.value })} placeholder="rzp_live_xxx…" /></label>
           <label>Razorpay Key Secret<input type="password" value={form.razorpay_key_secret || ''} onChange={(e) => setForm({ ...form, razorpay_key_secret: e.target.value })} placeholder="Enter secret key" /></label>
@@ -1037,7 +1037,7 @@ export function PaymentSettingsPage() {
         </div>
       </DashboardCard>
 
-      <DashboardCard title="Bank / UPI Details" subtitle="Published to every Super Admin as manual-payment instructions.">
+      <DashboardCard title="Bank / UPI Details" subtitle="Shown to every Super Admin as payment instructions.">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
           <label>Bank name<input value={form.bank_name || ''} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} /></label>
           <label>Account name<input value={form.account_name || ''} onChange={(e) => setForm({ ...form, account_name: e.target.value })} /></label>
@@ -1112,7 +1112,7 @@ export function CredentialsPage() {
 
   return (
     <div style={{ display: 'grid', gap: 20 }}>
-      <DashboardCard title="Your Credentials" subtitle="Change the password for this Supreme Admin account.">
+      <DashboardCard title="Your Credentials" subtitle="Change the password for this account.">
         <div style={{ display: 'grid', gap: 12, maxWidth: 360 }}>
           <label>Current password<input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} /></label>
           <label>New password<input type="password" value={ownNewPassword} onChange={(e) => setOwnNewPassword(e.target.value)} /></label>
@@ -1122,7 +1122,7 @@ export function CredentialsPage() {
         </div>
       </DashboardCard>
 
-      <DashboardCard title="Super Admin Credentials" subtitle="Changes are saved persistently. Super Admins must re-login to use new credentials.">
+      <DashboardCard title="Super Admin Credentials" subtitle="Changes are saved. Super Admins must log in again to use the new details.">
         {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
           <EmptyState title="No Super Admins yet" />
         ) : (
@@ -1230,7 +1230,7 @@ export function ReportsPage() {
   return (
     <DashboardCard
       title="Reports"
-      subtitle="Which plan each Super Admin is on, and how close they are to its monthly invoice limit."
+      subtitle="Each Super Admin's plan, and how much of the monthly invoice limit they have used."
       action={(
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn" onClick={exportCsv} disabled={shown.length === 0}>⬇ Export CSV</button>
@@ -1349,7 +1349,7 @@ export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = 
   }
 
   return (
-    <DashboardCard title="Upgrade Requests" subtitle="Approve a request to switch the workspace to the new plan and start its validity period.">
+    <DashboardCard title="Upgrade Requests" subtitle="Approve a request to move the workspace to the new plan and start its new term.">
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
         <button className={`btn${filter === 'pending' ? ' amber' : ''}`} onClick={() => setFilter('pending')}>Pending</button>
         <button className={`btn${filter === 'all' ? ' amber' : ''}`} onClick={() => setFilter('all')}>All</button>

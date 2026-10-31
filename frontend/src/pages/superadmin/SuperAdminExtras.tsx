@@ -52,7 +52,7 @@ export function MyPlanPage({ onPlanChanged }: { onPlanChanged?: () => void } = {
 
   return (
     <>
-    <DashboardCard title="My Plan" subtitle="Your current subscription, its validity, and upgrade or renewal.">
+    <DashboardCard title="My Plan" subtitle="Your plan, how long it lasts, and how to upgrade.">
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16 }}>
         <StatusChip status={plan.subscription_status} />
         <span className="muted">Billing currency: {plan.currency}</span>
@@ -133,7 +133,7 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
 
   const label = plan.expired ? 'Renew / upgrade plan' : 'Upgrade plan'
   return (
-    <DashboardCard title="Upgrade or renew" subtitle="Requests go to Aurae Software Solutions. Your plan changes once they approve.">
+    <DashboardCard title="Upgrade or renew" subtitle="Pick a plan and send a request. Your plan changes after Aurae approves it.">
       {pending ? (
         <p style={{ color: 'var(--amber)', fontWeight: 700 }}>
           Request for {pending.to_plan_name} sent on {pending.created_at.slice(0, 10)}. Awaiting approval from Aurae Software Solutions.
@@ -227,7 +227,7 @@ export function TenantCredentialsPage() {
   }
 
   return (
-    <DashboardCard title="Credentials" subtitle="Change your password, or de-register this device from your account.">
+    <DashboardCard title="Credentials" subtitle="Change your password, or remove this device from your account.">
       <div style={{ display: 'grid', gap: 12, maxWidth: 360 }}>
         <label>Current password<input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} /></label>
         <label>New password<input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /></label>
@@ -290,7 +290,7 @@ export function CustomersPage({ onCreateInvoice }: { onCreateInvoice?: (customer
 
       <DashboardCard
         title="Customers"
-        subtitle="Every customer you've invoiced or quoted, built automatically from your documents — no separate customer list to maintain."
+        subtitle="Everyone you have sent an invoice or quotation to. This list builds itself."
         action={<input placeholder="Search customers…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 200 }} />}
       >
         {loading ? <p className="muted">Loading…</p> : filtered.length === 0 ? (
@@ -659,7 +659,7 @@ export function GstManagerPage() {
 
   return (
     <div style={{ display: 'grid', gap: 20 }}>
-      <DashboardCard title="GST Registration" subtitle="Your GSTIN, PAN, and default tax rates — used to pre-fill new invoices and quotations.">
+      <DashboardCard title="GST Registration" subtitle="Your GSTIN, PAN and tax rates. They fill in new invoices and quotations for you.">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
           <label>GSTIN<input value={settings.gstin || ''} onChange={(e) => setSettings({ ...settings, gstin: e.target.value.toUpperCase() })} placeholder="22AAAAA0000A1Z5" /></label>
           <label>PAN<input value={settings.pan || ''} onChange={(e) => setSettings({ ...settings, pan: e.target.value.toUpperCase() })} placeholder="AAAAA0000A" /></label>
@@ -677,7 +677,7 @@ export function GstManagerPage() {
         </div>
       </DashboardCard>
 
-      <DashboardCard title="HSN / SAC Codes" subtitle="A quick-reference list of the codes you bill under, for consistent invoicing." action={<button className="btn secondary" onClick={() => setShowAdd(true)}>+ Add code</button>}>
+      <DashboardCard title="HSN / SAC Codes" subtitle="Keep the HSN/SAC codes you use here, so billing stays consistent." action={<button className="btn secondary" onClick={() => setShowAdd(true)}>+ Add code</button>}>
         {codes.length === 0 ? (
           <EmptyState title="No tax codes saved yet" sub="Add the HSN/SAC codes you commonly bill under." />
         ) : (
@@ -786,7 +786,7 @@ export function TenantReportsPage() {
 
   return (
     <div style={{ display: 'grid', gap: 20 }}>
-      <DashboardCard title="Reports" subtitle="Your revenue and document activity at a glance (all time).">
+      <DashboardCard title="Reports" subtitle="Your sales and documents at a glance (all time).">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 16 }}>
           <div><div className="muted">Revenue collected</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.revenue_collected.toLocaleString()}</div></div>
           <div><div className="muted">Last 30 days</div><div style={{ fontSize: 20, fontWeight: 800 }}>{stats.last_30_days_revenue.toLocaleString()}</div></div>
@@ -800,7 +800,7 @@ export function TenantReportsPage() {
 
       <DashboardCard
         title="Date-range report"
-        subtitle="Filter activity by date and export the exact rows below as a CSV."
+        subtitle="Choose dates to filter the list below, then download it as a CSV."
         action={<button className="btn secondary" onClick={exportCsv} disabled={!report || report.rows.length === 0}>⬇ Export (CSV)</button>}
       >
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>

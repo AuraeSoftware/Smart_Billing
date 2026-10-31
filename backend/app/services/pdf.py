@@ -31,6 +31,7 @@ def render_document_pdf(
     line_items: list[dict],  # [{description, quantity, unit_price, line_total}]
     totals: list[tuple[str, str]],  # [("Subtotal", "1,000.00"), ...]
     footer_text: Optional[str] = None,
+    customer_lines: Optional[list[str]] = None,
 ) -> bytes:
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
@@ -67,6 +68,11 @@ def render_document_pdf(
     y -= 5 * mm
     c.setFont("Helvetica", 10)
     c.drawString(margin, y, customer_name)
+    c.setFont("Helvetica", 9)
+    for line in (customer_lines or []):
+        y -= 4.5 * mm
+        c.drawString(margin, y, line[:90])
+    c.setFont("Helvetica", 10)
 
     for line in meta_lines:
         y -= 5 * mm

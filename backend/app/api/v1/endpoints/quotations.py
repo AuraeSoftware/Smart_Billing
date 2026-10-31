@@ -17,7 +17,8 @@ from app.services.numbering import next_document_number
 from app.services.pdf import render_document_pdf
 from app.services.usage import invoices_this_month
 from app.api.v1.endpoints.invoices import _compute_totals
-from app.api.v1.endpoints.customers import find_or_create_customer
+from app.api.v1.endpoints.customers import find_or_create_customer, remember_customer_details
+from app.api.v1.endpoints.invoices import _contact_lines
 
 router = APIRouter()
 
@@ -61,9 +62,11 @@ def create_quotation(
     quotation = Quotation(
         tenant_id=tenant_id, number=number, customer_name=payload.customer_name,
         customer_email=payload.customer_email, customer_id=customer_id_value,
+        customer_phone=payload.customer_phone, customer_address=payload.customer_address,
         issue_date=payload.issue_date,
         valid_until=payload.valid_until, notes=payload.notes, created_by=user.id,
     )
+    remember_customer_details(db, customer_id_value, payload.customer_email, payload.customer_phone, payload.customer_address)
     quotation.items = [QuotationItem(**item.model_dump()) for item in payload.items]
     quotation.subtotal, quotation.tax_total, quotation.discount_total, quotation.grand_total = _compute_quote_totals(quotation.items)
     db.add(quotation)
@@ -112,6 +115,7 @@ def convert_to_invoice(
     invoice = Invoice(
         tenant_id=tenant_id, number=number, customer_name=quotation.customer_name,
         customer_email=quotation.customer_email, customer_id=quotation.customer_id,
+        customer_phone=quotation.customer_phone, customer_address=quotation.customer_address,
         issue_date=quotation.issue_date,
         source_quotation_id=quotation.id, created_by=user.id,
         notes=f"Converted from quotation {quotation.number}.",
@@ -176,6 +180,7 @@ def quotation_pdf(
     pdf_bytes = render_document_pdf(
         doc_type="QUOTATION", number=quotation.number, tenant_name=tenant.name, branding=branding,
         customer_name=quotation.customer_name, issue_date=quotation.issue_date.isoformat(),
+        customer_lines=_contact_lines(quotation.customer_address, quotation.customer_phone, quotation.customer_email),
         meta_lines=[f"Valid until: {quotation.valid_until.isoformat()}"] if quotation.valid_until else [],
         line_items=[
             {"description": i.description, "quantity": i.quantity, "unit_price": f"{cur} {float(i.unit_price):,.2f}", "line_total": f"{cur} {float(i.line_total):,.2f}"}
