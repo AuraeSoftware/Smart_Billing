@@ -4,7 +4,7 @@ import { apiFetch, ApiError } from '../lib/api'
 import { Modal, readableAccent } from '../components/DashboardUI'
 import AuthSplitShell from '../components/AuthSplitShell'
 import PasswordField from '../components/PasswordField'
-import { COUNTRIES } from '../lib/countries'
+import { COUNTRIES, DIGITS_BY_DIAL } from '../lib/countries'
 
 interface PublicPlan {
   id: string
@@ -54,6 +54,7 @@ export default function SubscribeSignup() {
   const [countryIso, setCountryIso] = useState('IN')
   const [nationalNumber, setNationalNumber] = useState('')
   const country = COUNTRIES.find((c) => c.iso === countryIso) ?? COUNTRIES[0]
+  const len: [number, number] = DIGITS_BY_DIAL[country.dial] ?? [6, 12]
   const [plans, setPlans] = useState<PublicPlan[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
   // Monthly/Yearly is a single switch above the grid (standard SaaS pricing
@@ -80,6 +81,9 @@ export default function SubscribeSignup() {
     const digits = nationalNumber.trim()
     setForm((f) => ({ ...f, super_admin_mobile_number: digits ? `+${country.dial} ${digits}` : '' }))
   }, [country.dial, nationalNumber])
+
+  // Switching country trims a number that is now too long.
+  useEffect(() => { setNationalNumber((n) => n.slice(0, len[1])) }, [len[1]])
 
   // Plan prices for the chosen currency. This only re-runs when the currency
   // changes (country pick or the dropdown), never while typing a number, and
@@ -162,6 +166,10 @@ export default function SubscribeSignup() {
       setError('Please choose a subscription plan.')
       return
     }
+    if (nationalNumber.length < len[0] || nationalNumber.length > len[1]) {
+      setError(`Enter a valid ${country.name} mobile number: ${len[0] === len[1] ? len[0] : `${len[0]} to ${len[1]}`} digits, numbers only.`)
+      return
+    }
     if (!form.super_admin_mobile_number.trim()) {
       setError('Please enter your mobile number, with country code (e.g. +91 98765 43210).')
       return
@@ -214,10 +222,6 @@ export default function SubscribeSignup() {
             <input required value={form.tenant_name} onChange={(e) => update('tenant_name', e.target.value)} />
           </div>
           <div className="field">
-            <label>Workspace slug (used in your URL)</label>
-            <input required pattern="[a-z0-9\-]+" value={form.slug} onChange={(e) => update('slug', e.target.value.toLowerCase())} />
-          </div>
-          <div className="field">
             <label>Business contact email</label>
             <input type="email" required value={form.contact_email} onChange={(e) => update('contact_email', e.target.value)} />
           </div>
@@ -238,11 +242,15 @@ export default function SubscribeSignup() {
                 ))}
               </select>
               <input
-                required type="tel" inputMode="numeric" autoComplete="tel-national"
-                placeholder="98765 43210" value={nationalNumber} style={{ minWidth: 0, flex: 1 }}
-                onChange={(e) => setNationalNumber(e.target.value.replace(/[^\d\s-]/g, ''))}
+                required type="text" inputMode="numeric" autoComplete="tel-national"
+                placeholder={'9'.repeat(len[1])} value={nationalNumber} style={{ minWidth: 0, flex: 1 }}
+                maxLength={len[1]} aria-invalid={nationalNumber.length > 0 && nationalNumber.length < len[0]}
+                onChange={(e) => setNationalNumber(e.target.value.replace(/\D/g, '').slice(0, len[1]))}
               />
             </div>
+            <span className={nationalNumber && nationalNumber.length < len[0] ? 'error-text' : 'muted'} style={{ fontSize: 12 }}>
+              {len[0] === len[1] ? `${len[0]} digits` : `${len[0]} to ${len[1]} digits`} for {country.name} (+{country.dial}). Numbers only.
+            </span>
           </div>
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />

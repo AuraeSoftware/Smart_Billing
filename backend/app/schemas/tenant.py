@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, field_validator
 
-from app.core.validators import clean_phone
+from app.core.validators import clean_phone, check_international
 
 
 class TenantSignupRequest(BaseModel):
@@ -13,7 +13,7 @@ class TenantSignupRequest(BaseModel):
     submitted separately via /subscription/{id}/branding, and the tenant is
     not activated until both that step and a plan are on file (SOW 3.4)."""
     tenant_name: str
-    slug: str
+    slug: str | None = None  # optional: generated from the business name when omitted
     contact_email: EmailStr
     super_admin_full_name: str
     super_admin_email: EmailStr
@@ -26,7 +26,7 @@ class TenantSignupRequest(BaseModel):
         cleaned = clean_phone(v)
         if cleaned is None:
             raise ValueError("Enter your mobile number.")
-        return cleaned
+        return check_international(cleaned)
     subscription_plan_id: UUID
     # The currency the plan picker showed them (converted via live rate or a
     # manual override) — recorded on the tenant so invoices/reports start in

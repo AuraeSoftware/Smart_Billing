@@ -86,6 +86,20 @@ def list_public_plans(
     return out
 
 
+def _make_slug(db: Session, source: str, keep: uuid.UUID | None = None) -> str:
+    """Workspace slug from the business name; a short suffix keeps it unique.
+    Nobody has to type it any more."""
+    import re
+    base = re.sub(r"[^a-z0-9]+", "-", source.lower()).strip("-")[:40] or "workspace"
+    slug, n = base, 1
+    while True:
+        owner = db.query(Tenant).filter(Tenant.slug == slug).one_or_none()
+        if owner is None or (keep is not None and owner.id == keep):
+            return slug
+        n += 1
+        slug = f"{base}-{n}"
+
+
 def _abandoned_signup(db: Session, user: User) -> Tenant | None:
     """The user's tenant, if the signup was never completed: still waiting for
     onboarding, nothing paid, no branding uploaded, and the only account in it."""
@@ -115,9 +129,7 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
         abandoned = _abandoned_signup(db, existing_user)
         if abandoned is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "That email is already registered. Please sign in instead.")
-    slug_owner = db.query(Tenant).filter(Tenant.slug == payload.slug).one_or_none()
-    if slug_owner is not None and (abandoned is None or slug_owner.id != abandoned.id):
-        raise HTTPException(status.HTTP_409_CONFLICT, "That slug is already taken.")
+    slug = _make_slug(db, payload.slug or payload.tenant_name, keep=abandoned.id if abandoned else None)
     plan = db.query(SubscriptionPlan).filter(
         SubscriptionPlan.id == payload.subscription_plan_id, SubscriptionPlan.is_active.is_(True),
     ).one_or_none()
@@ -150,7 +162,7 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
 
     if abandoned is not None:
         abandoned.name = payload.tenant_name
-        abandoned.slug = payload.slug
+        abandoned.slug = slug
         abandoned.contact_email = payload.contact_email
         abandoned.currency = billing_currency
         abandoned.subscription_plan_id = plan.id
@@ -169,7 +181,7 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
         return abandoned
 
     tenant = Tenant(
-        name=payload.tenant_name, slug=payload.slug, contact_email=payload.contact_email,
+        name=payload.tenant_name, slug=slug, contact_email=payload.contact_email,
         currency=billing_currency, subscription_plan_id=plan.id,
     )
     db.add(tenant)
