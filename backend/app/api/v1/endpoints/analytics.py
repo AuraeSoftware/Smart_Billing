@@ -34,6 +34,8 @@ class ReportRow(BaseModel):
     customer_name: str
     status: str
     amount: float
+    # When an invoice was settled / a quotation became an invoice (else None).
+    completed_on: str | None = None
 
 
 class TenantReportOut(BaseModel):
@@ -84,11 +86,27 @@ def tenant_report(
     )
     revenue = sum(float(r.amount) for r in receipts)
 
+    # "Paid on" for settled invoices (date of the latest receipt) and
+    # "converted on" for quotations (issue date of the invoice made from them).
+    last_receipt: dict = {}
+    for inv_id, last in db.query(Receipt.invoice_id, func.max(Receipt.received_at)).filter(
+        Receipt.tenant_id == tenant_id).group_by(Receipt.invoice_id).all():
+        last_receipt[inv_id] = last
+    converted_on: dict = {}
+    for src_id, issued in db.query(Invoice.source_quotation_id, Invoice.issue_date).filter(
+        Invoice.tenant_id == tenant_id, Invoice.source_quotation_id.isnot(None)).all():
+        converted_on[src_id] = issued
+
+    def _iso(d):
+        return d.isoformat() if d else None
+
     rows = [
-        ReportRow(date=i.issue_date.isoformat(), doc_type="invoice", number=i.number, customer_name=i.customer_name, status=i.status.value, amount=float(i.grand_total))
+        ReportRow(date=i.issue_date.isoformat(), doc_type="invoice", number=i.number, customer_name=i.customer_name, status=i.status.value, amount=float(i.grand_total),
+                  completed_on=_iso(last_receipt.get(i.id)) if i.status == InvoiceStatus.PAID else None)
         for i in invoices
     ] + [
-        ReportRow(date=q.issue_date.isoformat(), doc_type="quotation", number=q.number, customer_name=q.customer_name, status=q.status.value, amount=float(q.grand_total))
+        ReportRow(date=q.issue_date.isoformat(), doc_type="quotation", number=q.number, customer_name=q.customer_name, status=q.status.value, amount=float(q.grand_total),
+                  completed_on=_iso(converted_on.get(q.id)))
         for q in quotations
     ] + [
         ReportRow(date=r.received_at.isoformat(), doc_type="receipt", number=r.number, customer_name=(db.query(Invoice).filter(Invoice.id == r.invoice_id).one()).customer_name, status="received", amount=float(r.amount))

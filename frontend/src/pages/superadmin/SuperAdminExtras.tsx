@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch, ApiError } from '../../lib/api'
 import { downloadCsv } from '../../lib/csv'
+import { useAuth } from '../../lib/auth'
+import PasswordField from '../../components/PasswordField'
 import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, DetailRow, Icon, ICONS } from '../../components/DashboardUI'
 
 /**
@@ -205,7 +207,105 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
   )
 }
 
+interface TeamCred { id: string; full_name: string; email: string; is_active: boolean }
+
+/** Super Admin only: edit a team member's name / sign-in email, set a new
+ * password for them, and switch their access on or off. */
+function TeamCredentials() {
+  const [rows, setRows] = useState<TeamCred[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<TeamCred | null>(null)
+  const [resetting, setResetting] = useState<TeamCred | null>(null)
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [pw, setPw] = useState('')
+  const [err, setErr] = useState('')
+  const [note, setNote] = useState('')
+
+  async function load() {
+    try { setRows(await apiFetch<TeamCred[]>('/tenant-users')) } finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  async function saveEdit() {
+    if (!editing) return
+    setErr('')
+    try {
+      await apiFetch(`/tenant-users/${editing.id}`, { method: 'PUT', body: JSON.stringify({ full_name: name, email }) })
+      setEditing(null); setNote('Team member updated.'); load()
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not save.') }
+  }
+  async function savePassword() {
+    if (!resetting) return
+    setErr('')
+    if (pw.length < 8) { setErr('Password must be at least 8 characters.'); return }
+    try {
+      await apiFetch(`/tenant-users/${resetting.id}/reset-password`, { method: 'POST', body: JSON.stringify({ new_password: pw }) })
+      setResetting(null); setPw(''); setNote(`New password set for ${resetting.full_name}.`)
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not set the password.') }
+  }
+  async function toggle(m: TeamCred) {
+    setErr(''); setNote('')
+    try {
+      await apiFetch(`/tenant-users/${m.id}/${m.is_active ? 'deactivate' : 'reactivate'}`, { method: 'POST' })
+      load()
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Could not update access.') }
+  }
+
+  return (
+    <DashboardCard title="Team credentials" subtitle="Change a team member's name or email, set a new password, or switch their access on or off.">
+      {note && <p className="muted" role="status">{note}</p>}
+      {!editing && !resetting && err && <p className="error-text" role="alert">{err}</p>}
+      {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
+        <EmptyState title="No team members yet" sub="Add team members from the Team tab." />
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Name</th><th>Email</th><th>Access</th><th></th></tr></thead>
+            <tbody>
+              {rows.map((m) => (
+                <tr key={m.id}>
+                  <td style={{ fontWeight: 700 }}>{m.full_name}</td>
+                  <td className="muted">{m.email}</td>
+                  <td>{m.is_active ? <StatusChip status="active" /> : <StatusChip status="inactive" />}</td>
+                  <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button className="btn ghost" onClick={() => { setEditing(m); setName(m.full_name); setEmail(m.email); setErr('') }}>Edit</button>
+                    <button className="btn secondary" onClick={() => { setResetting(m); setPw(''); setErr('') }}>Reset password</button>
+                    <button className={m.is_active ? 'btn warn' : 'btn secondary'} onClick={() => toggle(m)}>{m.is_active ? 'Disable' : 'Enable'}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <Modal title="Edit team member" open={!!editing} onClose={() => setEditing(null)} maxWidth={420}>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <label>Full name<input value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <label>Email<input type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+          {err && <p className="error-text" role="alert">{err}</p>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn" style={{ flex: 1 }} onClick={saveEdit} disabled={!name.trim() || !email.trim()}>Save changes</button>
+            <button className="btn ghost" onClick={() => setEditing(null)}>Cancel</button>
+          </div>
+        </div>
+      </Modal>
+      <Modal title={`New password for ${resetting?.full_name ?? ''}`} open={!!resetting} onClose={() => setResetting(null)} maxWidth={420}>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <PasswordField label="New password" autoComplete="new-password" minLength={8} value={pw} onChange={setPw} />
+          {err && <p className="error-text" role="alert">{err}</p>}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn" style={{ flex: 1 }} onClick={savePassword}>Set password</button>
+            <button className="btn ghost" onClick={() => setResetting(null)}>Cancel</button>
+          </div>
+        </div>
+      </Modal>
+    </DashboardCard>
+  )
+}
+
 export function TenantCredentialsPage() {
+  const { session } = useAuth()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -227,15 +327,18 @@ export function TenantCredentialsPage() {
   }
 
   return (
-    <DashboardCard title="Credentials" subtitle="Change your password, or remove this device from your account.">
+    <div style={{ display: 'grid', gap: 20 }}>
+    <DashboardCard title="Credentials" subtitle="Change your own password.">
       <div style={{ display: 'grid', gap: 12, maxWidth: 360 }}>
-        <label>Current password<input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} /></label>
-        <label>New password<input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /></label>
-        <label>Confirm new password<input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label>
+        <PasswordField label="Current password" autoComplete="current-password" value={currentPassword} onChange={setCurrentPassword} />
+        <PasswordField label="New password" autoComplete="new-password" minLength={8} value={newPassword} onChange={setNewPassword} />
+        <PasswordField label="Confirm new password" autoComplete="new-password" value={confirm} onChange={setConfirm} />
         {message && <p style={{ color: message.ok ? 'var(--green)' : 'var(--red)' }}>{message.text}</p>}
         <button className="btn" onClick={submit} disabled={!currentPassword || !newPassword}>Update password</button>
       </div>
     </DashboardCard>
+    {session?.role !== 'tenant_user' && <TeamCredentials />}
+    </div>
   )
 }
 
@@ -291,7 +394,10 @@ export function CustomersPage({ onCreateInvoice }: { onCreateInvoice?: (customer
       <DashboardCard
         title="Customers"
         subtitle="Everyone you have sent an invoice or quotation to. This list builds itself."
-        action={<input placeholder="Search customers…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 200 }} />}
+        action={<div className="search-box" style={{ width: 'min(300px, 100%)' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+            <input type="search" aria-label="Search customers" placeholder="Search by name or email" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>}
       >
         {loading ? <p className="muted">Loading…</p> : filtered.length === 0 ? (
           <EmptyState icon={<Icon path={ICONS.users} size={22} />} title="No customers yet" sub="Customers appear here as soon as you create an invoice or quotation." />
@@ -403,8 +509,14 @@ export function TeamPage() {
     }
   }
 
+  const [toggleError, setToggleError] = useState('')
   async function toggle(m: TeamMember) {
-    await apiFetch(`/tenant-users/${m.id}/${m.is_active ? 'deactivate' : 'reactivate'}`, { method: 'POST' })
+    setToggleError('')
+    try {
+      await apiFetch(`/tenant-users/${m.id}/${m.is_active ? 'deactivate' : 'reactivate'}`, { method: 'POST' })
+    } catch (e) {
+      setToggleError(e instanceof ApiError ? e.message : 'Could not update this team member.')
+    }
     load()
   }
 
@@ -418,6 +530,7 @@ export function TeamPage() {
         <button className="btn" onClick={() => { setForm(emptyTeamForm); setError(''); setShowAdd(true) }}>+ Add team member</button>
       </div>
 
+      {toggleError && <p className="error-text" role="alert">{toggleError}</p>}
       <DashboardCard>
         {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
           <EmptyState icon={<Icon path={ICONS.users} size={22} />} title="No team members yet" sub="Add a staff account so they can log in under your workspace." />
@@ -444,8 +557,8 @@ export function TeamPage() {
       <Modal title="Add team member" open={showAdd} onClose={() => setShowAdd(false)} maxWidth={420}>
         <div style={{ display: 'grid', gap: 12 }}>
           <label>Full name<input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></label>
-          <label>Email<input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
-          <label>Password<input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></label>
+          <label>Email<input type="email" name="team-member-email" autoComplete="off" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+          <PasswordField label="Password" autoComplete="new-password" minLength={8} value={form.password} onChange={(v) => setForm({ ...form, password: v })} />
           {error && <p style={{ color: 'var(--red)' }}>{error}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn" style={{ flex: 1 }} onClick={submitAdd}>Add member</button>
@@ -480,6 +593,7 @@ export function CatalogPage() {
   const [editing, setEditing] = useState<CatalogItemRow | null>(null)
   const [form, setForm] = useState(emptyCatalogForm)
   const [error, setError] = useState('')
+  const [catSearch, setCatSearch] = useState('')
 
   async function load() {
     setLoading(true)
@@ -528,8 +642,8 @@ export function CatalogPage() {
       <label>Description<textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} /></label>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <label>Unit<input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="hr, pc…" /></label>
-        <label>Unit price<input type="number" step="0.01" value={form.default_unit_price} onChange={(e) => setForm({ ...form, default_unit_price: Number(e.target.value) })} /></label>
-        <label>Tax %<input type="number" step="0.01" value={form.default_tax_rate_percent} onChange={(e) => setForm({ ...form, default_tax_rate_percent: Number(e.target.value) })} /></label>
+        <label>Unit price<input type="number" min={0} step="0.01" placeholder="0" value={form.default_unit_price === 0 ? '' : form.default_unit_price} onChange={(e) => setForm({ ...form, default_unit_price: Number(e.target.value) })} /></label>
+        <label>Tax %<input type="number" min={0} max={100} step="0.01" placeholder="0" value={form.default_tax_rate_percent === 0 ? '' : form.default_tax_rate_percent} onChange={(e) => setForm({ ...form, default_tax_rate_percent: Number(e.target.value) })} /></label>
       </div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
         <input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} /> Active — available when creating invoices/quotations
@@ -540,15 +654,25 @@ export function CatalogPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>Catalog</h2>
-          <p style={{ margin: '3px 0 0', fontSize: 13, color: 'var(--text-3)' }}>Save a priced item once, then drop it into any invoice or quotation line without retyping price and tax.</p>
-        </div>
-        <button className="btn" onClick={openAdd}>+ Add item</button>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 20 }}>
+        <KpiCard icon={<Icon path={ICONS.package} />} label="Items" value={rows.length} color="var(--accent)" />
+        <KpiCard icon={<Icon path={ICONS.checkCircle} />} label="Active" value={rows.filter((r) => r.is_active).length} color="var(--green)" />
+        <KpiCard icon={<Icon path={ICONS.xCircle} />} label="Inactive" value={rows.filter((r) => !r.is_active).length} color="var(--amber)" />
       </div>
 
-      <DashboardCard>
+      <DashboardCard
+        title="Catalog"
+        subtitle="Save a priced item once, then drop it into any invoice or quotation line without retyping price and tax."
+        action={(
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div className="search-box" style={{ width: 'min(300px, 100%)' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+            <input type="search" aria-label="Search catalog" placeholder="Search items" value={catSearch} onChange={(e) => setCatSearch(e.target.value)} />
+          </div>
+            <button className="btn" onClick={openAdd}>+ Add item</button>
+          </div>
+        )}
+      >
         {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
           <EmptyState icon={<Icon path={ICONS.invoice} size={22} />} title="No catalog items yet" sub="Click 'Add item' to save your first reusable line item." />
         ) : (
@@ -556,7 +680,7 @@ export function CatalogPage() {
           <table>
             <thead><tr><th>Item</th><th>Unit</th><th>Unit price</th><th>Tax %</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {rows.map((item) => (
+              {rows.filter((r) => `${r.name} ${r.description || ''}`.toLowerCase().includes(catSearch.toLowerCase())).map((item) => (
                 <tr key={item.id}>
                   <td>
                     <div style={{ fontWeight: 700 }}>{item.name}</div>
@@ -620,6 +744,7 @@ export function GstManagerPage() {
   const [saved, setSaved] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [codeForm, setCodeForm] = useState(emptyTaxCodeForm)
+  const [codeError, setCodeError] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -636,19 +761,37 @@ export function GstManagerPage() {
   }
   useEffect(() => { load() }, [])
 
+  const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/
+  const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/
+  const panValue = (settings.pan || '').trim()
+  const gstinValue = (settings.gstin || '').trim()
+  const panError = panValue && !PAN_RE.test(panValue) ? 'PAN is 10 characters: 5 letters, 4 digits, 1 letter (for example ABCDE1234F).' : ''
+  const gstinError = gstinValue && !GSTIN_RE.test(gstinValue) ? 'GSTIN is 15 characters, for example 22AAAAA0000A1Z5.' : ''
+  const [gstError, setGstError] = useState<string | null>(null)
+
   async function saveSettings() {
-    setSaved(false)
-    const updated = await apiFetch<GstSettings>('/gst/settings', { method: 'PUT', body: JSON.stringify(settings) })
-    setSettings({ ...emptyGstSettings, ...updated })
-    setSaved(true)
+    setSaved(false); setGstError(null)
+    if (panError || gstinError) { setGstError(panError || gstinError); return }
+    try {
+      const updated = await apiFetch<GstSettings>('/gst/settings', { method: 'PUT', body: JSON.stringify(settings) })
+      setSettings({ ...emptyGstSettings, ...updated })
+      setSaved(true)
+    } catch (err) {
+      setGstError(err instanceof ApiError ? err.message : 'Could not save. Please try again.')
+    }
   }
 
   async function addCode() {
-    if (!codeForm.code) return
-    await apiFetch('/gst/tax-codes', { method: 'POST', body: JSON.stringify(codeForm) })
-    setCodeForm(emptyTaxCodeForm)
-    setShowAdd(false)
-    load()
+    if (!codeForm.code.trim()) { setCodeError('Enter the HSN/SAC code.'); return }
+    setCodeError(null)
+    try {
+      await apiFetch('/gst/tax-codes', { method: 'POST', body: JSON.stringify(codeForm) })
+      setCodeForm(emptyTaxCodeForm)
+      setShowAdd(false)
+      load()
+    } catch (err) {
+      setCodeError(err instanceof ApiError ? err.message : 'Could not add the code.')
+    }
   }
   async function removeCode(id: string) {
     await apiFetch(`/gst/tax-codes/${id}`, { method: 'DELETE' })
@@ -661,19 +804,22 @@ export function GstManagerPage() {
     <div style={{ display: 'grid', gap: 20 }}>
       <DashboardCard title="GST Registration" subtitle="Your GSTIN, PAN and tax rates. They fill in new invoices and quotations for you.">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-          <label>GSTIN<input value={settings.gstin || ''} onChange={(e) => setSettings({ ...settings, gstin: e.target.value.toUpperCase() })} placeholder="22AAAAA0000A1Z5" /></label>
-          <label>PAN<input value={settings.pan || ''} onChange={(e) => setSettings({ ...settings, pan: e.target.value.toUpperCase() })} placeholder="AAAAA0000A" /></label>
+          <label>GSTIN<input maxLength={15} spellCheck={false} aria-invalid={!!gstinError} value={settings.gstin || ''} onChange={(e) => setSettings({ ...settings, gstin: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })} placeholder="22AAAAA0000A1Z5" />
+            {gstinError && <span className="error-text" style={{ fontSize: 12 }}>{gstinError}</span>}</label>
+          <label>PAN<input data-pan maxLength={10} spellCheck={false} aria-invalid={!!panError} value={settings.pan || ''} onChange={(e) => setSettings({ ...settings, pan: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10) })} placeholder="ABCDE1234F" />
+            {panError && <span className="error-text" style={{ fontSize: 12 }}>{panError}</span>}</label>
           <label>Legal name<input value={settings.legal_name || ''} onChange={(e) => setSettings({ ...settings, legal_name: e.target.value })} /></label>
           <label>Place of supply<input value={settings.place_of_supply || ''} onChange={(e) => setSettings({ ...settings, place_of_supply: e.target.value })} placeholder="e.g. Kerala" /></label>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginTop: 12 }}>
-          <label>Default CGST %<input type="number" step="0.01" value={settings.default_cgst_percent} onChange={(e) => setSettings({ ...settings, default_cgst_percent: Number(e.target.value) })} /></label>
-          <label>Default SGST %<input type="number" step="0.01" value={settings.default_sgst_percent} onChange={(e) => setSettings({ ...settings, default_sgst_percent: Number(e.target.value) })} /></label>
-          <label>Default IGST %<input type="number" step="0.01" value={settings.default_igst_percent} onChange={(e) => setSettings({ ...settings, default_igst_percent: Number(e.target.value) })} /></label>
+          <label>Default CGST %<input type="number" min={0} max={100} step="0.01" value={settings.default_cgst_percent} onChange={(e) => setSettings({ ...settings, default_cgst_percent: Number(e.target.value) })} /></label>
+          <label>Default SGST %<input type="number" min={0} max={100} step="0.01" value={settings.default_sgst_percent} onChange={(e) => setSettings({ ...settings, default_sgst_percent: Number(e.target.value) })} /></label>
+          <label>Default IGST %<input type="number" min={0} max={100} step="0.01" value={settings.default_igst_percent} onChange={(e) => setSettings({ ...settings, default_igst_percent: Number(e.target.value) })} /></label>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12 }}>
-          <button className="btn" onClick={saveSettings}>Save GST Settings</button>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={saveSettings} style={{ minWidth: 160 }}>Save GST Settings</button>
           {saved && <span className="status-chip status-chip-green">Saved</span>}
+          {gstError && <span className="error-text" style={{ margin: 0 }}>{gstError}</span>}
         </div>
       </DashboardCard>
 
@@ -703,7 +849,8 @@ export function GstManagerPage() {
         <div style={{ display: 'grid', gap: 12 }}>
           <label>Code<input value={codeForm.code} onChange={(e) => setCodeForm({ ...codeForm, code: e.target.value })} placeholder="e.g. 9983" /></label>
           <label>Description<input value={codeForm.description} onChange={(e) => setCodeForm({ ...codeForm, description: e.target.value })} placeholder="e.g. IT consulting services" /></label>
-          <label>GST rate %<input type="number" step="0.01" value={codeForm.gst_rate_percent} onChange={(e) => setCodeForm({ ...codeForm, gst_rate_percent: Number(e.target.value) })} /></label>
+          <label>GST rate %<input type="number" min={0} max={100} step="0.01" value={codeForm.gst_rate_percent} onChange={(e) => setCodeForm({ ...codeForm, gst_rate_percent: Number(e.target.value) })} /></label>
+          {codeError && <p className="error-text" style={{ margin: 0 }}>{codeError}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn" style={{ flex: 1 }} onClick={addCode}>Add code</button>
             <button className="btn ghost" onClick={() => setShowAdd(false)}>Cancel</button>
@@ -731,7 +878,7 @@ interface TenantAnalyticsForReports {
 
 // SB06 — date-filtered report rows + a real CSV export, additive alongside
 // the all-time stats already fetched above (unchanged).
-interface ReportRow { date: string; doc_type: string; number: string; customer_name: string; status: string; amount: number }
+interface ReportRow { date: string; doc_type: string; number: string; customer_name: string; status: string; amount: number; completed_on?: string | null }
 interface TenantReportOut {
   from_date: string | null; to_date: string | null
   invoice_count: number; quotation_count: number; receipt_count: number
@@ -777,8 +924,8 @@ export function TenantReportsPage() {
         ['Outstanding receivables', report.outstanding_receivables.toFixed(2)],
         ['Invoices', report.invoice_count], ['Quotations', report.quotation_count], ['Receipts', report.receipt_count],
       ] },
-      { title: 'Documents', headers: ['Date', 'Type', 'Number', 'Customer', 'Status', 'Amount'],
-        rows: report.rows.map((r) => [r.date, r.doc_type, r.number, r.customer_name, r.status.replaceAll('_', ' '), r.amount.toFixed(2)]) },
+      { title: 'Documents', headers: ['Date', 'Type', 'Number', 'Customer', 'Status', 'Paid / converted on', 'Amount'],
+        rows: report.rows.map((r) => [r.date, r.doc_type, r.number, r.customer_name, r.status.replaceAll('_', ' '), r.completed_on || '', r.amount.toFixed(2)]) },
     ])
   }
 
@@ -821,7 +968,7 @@ export function TenantReportsPage() {
             </div>
             <div className="table-scroll">
               <table>
-                <thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Customer</th><th>Status</th><th>Amount</th></tr></thead>
+                <thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Customer</th><th>Status</th><th>Paid / converted on</th><th>Amount</th></tr></thead>
                 <tbody>
                   {report.rows.map((r) => (
                     <tr key={`${r.doc_type}-${r.number}`}>
@@ -830,6 +977,7 @@ export function TenantReportsPage() {
                       <td style={{ fontWeight: 700 }}>{r.number}</td>
                       <td>{r.customer_name}</td>
                       <td style={{ textTransform: 'capitalize' }}>{r.status.replaceAll('_', ' ')}</td>
+                      <td>{r.completed_on || '—'}</td>
                       <td>{r.amount.toFixed(2)}</td>
                     </tr>
                   ))}

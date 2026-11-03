@@ -39,7 +39,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/change-password")
-def change_password(payload: ChangePasswordRequest, db: Session = Depends(get_db), user: User = Depends(require_super_admin)):
+def change_password(payload: ChangePasswordRequest, db: Session = Depends(get_db), user: User = Depends(require_tenant_staff)):
     """Credentials page — self-service password change. Requires the current
     password so a hijacked session token alone can't lock the real owner out."""
     if not verify_password(payload.current_password, user.hashed_password):
@@ -196,7 +196,7 @@ class MyPlanOut(BaseModel):
 @router.get("/my-plan", response_model=MyPlanOut)
 def get_my_plan(
     db: Session = Depends(get_db),
-    _: User = Depends(require_super_admin),
+    _: User = Depends(require_tenant_staff),
     tenant_id: str = Depends(current_tenant_id_allow_expired),
 ):
     """My Plan page — the tenant's own subscription plan and currency,

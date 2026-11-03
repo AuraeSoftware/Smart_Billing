@@ -60,6 +60,8 @@ class DeviceEvent(Base):
     )
     device_label: Mapped[str] = mapped_column(String(255), nullable=True)
     detail: Mapped[str] = mapped_column(String(500), nullable=True)
+    # The device a blocked login came from, so an acknowledgement can approve it.
+    device_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # Set when the Supreme Admin has viewed this event in the dashboard alert feed.
     acknowledged: Mapped[bool] = mapped_column(default=False)

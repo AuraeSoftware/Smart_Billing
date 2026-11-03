@@ -58,6 +58,7 @@ def attempt_login(db: Session, *, user: User, device_token: str, device_label: s
         _log_event(
             db, user, DeviceEventType.LOGIN_BLOCKED_OTHER_DEVICE, device_label,
             f"Blocked login attempt from a new device while '{existing.device_label}' is registered.",
+            device_token=device_token,
         )
         raise DeviceBindingError(
             "This account is already registered to another device. "
@@ -102,8 +103,28 @@ def reactivate_credential(db: Session, *, user: User, supreme_admin: User) -> No
     )
 
 
-def _log_event(db: Session, user: User, event_type: DeviceEventType, device_label: Optional[str], detail: str) -> None:
+def approve_blocked_device(db: Session, *, user: User, event: DeviceEvent, actor: User) -> bool:
+    """Acknowledging a blocked-login alert approves that device: it becomes the
+    registered one, so the next sign-in from it goes through. Returns False if
+    the alert predates device tracking (nothing to approve)."""
+    if not event.device_token:
+        return False
+    existing = db.query(DeviceSession).filter(DeviceSession.user_id == user.id).one_or_none()
+    if existing is not None:
+        db.delete(existing)
+        db.flush()
+    db.add(DeviceSession(
+        user_id=user.id, device_token=event.device_token, device_label=event.device_label,
+        active_session_token=uuid.uuid4().hex,
+    ))
+    _log_event(db, user, DeviceEventType.RE_REGISTERED, event.device_label,
+               f"New device approved by supreme admin ({actor.email}).")
+    return True
+
+
+def _log_event(db: Session, user: User, event_type: DeviceEventType, device_label: Optional[str], detail: str,
+               device_token: Optional[str] = None) -> None:
     db.add(DeviceEvent(
         user_id=user.id, tenant_id=user.tenant_id, event_type=event_type,
-        device_label=device_label, detail=detail,
+        device_label=device_label, detail=detail, device_token=device_token,
     ))

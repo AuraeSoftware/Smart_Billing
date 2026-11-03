@@ -10,6 +10,7 @@ export default function PasswordField({
   required,
   minLength,
   autoComplete,
+  placeholder,
 }: {
   label: string
   value: string
@@ -17,6 +18,7 @@ export default function PasswordField({
   required?: boolean
   minLength?: number
   autoComplete?: string
+  placeholder?: string
 }) {
   const [visible, setVisible] = useState(false)
   const id = useId()
@@ -31,6 +33,7 @@ export default function PasswordField({
           required={required}
           minLength={minLength}
           autoComplete={autoComplete}
+          placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           style={{ width: '100%', boxSizing: 'border-box', paddingRight: 40 }}

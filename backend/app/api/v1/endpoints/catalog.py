@@ -8,7 +8,7 @@ caller's own tenant.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -46,8 +46,8 @@ class CatalogItemIn(BaseModel):
     name: str
     description: str | None = None
     unit: str | None = None
-    default_unit_price: float = 0
-    default_tax_rate_percent: float = 0
+    default_unit_price: float = Field(0, ge=0)
+    default_tax_rate_percent: float = Field(0, ge=0, le=100)
     is_active: bool = True
 
 

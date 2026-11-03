@@ -32,6 +32,7 @@ from app.services.subscription_events import log_subscription_event
 from app.services.trial import assert_trial_available, claim_trial, TrialAlreadyUsedError
 from app.services.razorpay_client import create_order, verify_signature, RazorpayError
 from app.services.pricing import resolve_plan_price
+from app.core.validators import clean_phone
 from app.core.currencies import WORLD_CURRENCIES, currency_for_phone
 from app.services.pdf import (
     PAPER_SIZES, FONT_CHOICES, DocStyle, valid_hex, style_from_branding, render_preview,
@@ -85,12 +86,38 @@ def list_public_plans(
     return out
 
 
+def _abandoned_signup(db: Session, user: User) -> Tenant | None:
+    """The user's tenant, if the signup was never completed: still waiting for
+    onboarding, nothing paid, no branding uploaded, and the only account in it."""
+    if user.role != UserRole.SUPER_ADMIN or user.tenant_id is None:
+        return None
+    tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).one_or_none()
+    if tenant is None or tenant.subscription_status != SubscriptionStatus.PENDING_ONBOARDING:
+        return None
+    paid = db.query(SubscriptionPayment).filter(
+        SubscriptionPayment.tenant_id == tenant.id, SubscriptionPayment.status == "paid").first()
+    branding = db.query(TenantBranding).filter(TenantBranding.tenant_id == tenant.id).one_or_none()
+    if paid is not None or (branding is not None and branding.logo_url):
+        return None
+    if db.query(User).filter(User.tenant_id == tenant.id).count() != 1:
+        return None
+    return tenant
+
+
 @router.post("/signup", response_model=TenantOut, status_code=status.HTTP_201_CREATED)
 def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
-    if db.query(Tenant).filter(Tenant.slug == payload.slug).one_or_none():
+    # A signup that was started but never finished (no payment, no branding)
+    # must not lock the email out: the same person can come back and start
+    # again, and the unfinished workspace is simply updated.
+    abandoned: Tenant | None = None
+    existing_user = db.query(User).filter(User.email == payload.super_admin_email).one_or_none()
+    if existing_user is not None:
+        abandoned = _abandoned_signup(db, existing_user)
+        if abandoned is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "That email is already registered. Please sign in instead.")
+    slug_owner = db.query(Tenant).filter(Tenant.slug == payload.slug).one_or_none()
+    if slug_owner is not None and (abandoned is None or slug_owner.id != abandoned.id):
         raise HTTPException(status.HTTP_409_CONFLICT, "That slug is already taken.")
-    if db.query(User).filter(User.email == payload.super_admin_email).one_or_none():
-        raise HTTPException(status.HTTP_409_CONFLICT, "That email is already registered.")
     plan = db.query(SubscriptionPlan).filter(
         SubscriptionPlan.id == payload.subscription_plan_id, SubscriptionPlan.is_active.is_(True),
     ).one_or_none()
@@ -102,18 +129,44 @@ def signup(payload: TenantSignupRequest, db: Session = Depends(get_db)):
     # tenant behind. See app/services/trial.py for what "one company" means
     # in the absence of real business-registration verification.
     trial_company_key = None
+    already_claimed_by_this_signup = False
     if plan.is_trial:
         try:
             trial_company_key = assert_trial_available(
                 db, business_name=payload.tenant_name, contact_email=payload.contact_email,
             )
         except TrialAlreadyUsedError as exc:
-            raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+            from app.models.trial_claim import TrialClaim
+            mine = abandoned is not None and db.query(TrialClaim).filter(
+                TrialClaim.tenant_id == abandoned.id).first() is not None
+            if not mine:
+                raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+            already_claimed_by_this_signup = True
 
     # The currency the visitor was actually shown/agreed to — resolved again
     # here (not trusted blindly from the payload) so a tampered request can't
     # claim a currency/price combination Currency Configuration never set.
     billing_currency, _ = resolve_plan_price(db, plan, payload.billing_currency)
+
+    if abandoned is not None:
+        abandoned.name = payload.tenant_name
+        abandoned.slug = payload.slug
+        abandoned.contact_email = payload.contact_email
+        abandoned.currency = billing_currency
+        abandoned.subscription_plan_id = plan.id
+        existing_user.hashed_password = hash_password(payload.super_admin_password)
+        existing_user.full_name = payload.super_admin_full_name
+        existing_user.mobile_number = payload.super_admin_mobile_number
+        if plan.is_trial and trial_company_key is not None and not already_claimed_by_this_signup:
+            claim_trial(db, company_key=trial_company_key, tenant_id=abandoned.id,
+                        business_name=payload.tenant_name, contact_email=payload.contact_email)
+        log_subscription_event(
+            db, tenant=abandoned, event_type="plan_changed", old_value="none", new_value=plan.name,
+            note="Signup restarted with the same email",
+        )
+        db.commit()
+        db.refresh(abandoned)
+        return abandoned
 
     tenant = Tenant(
         name=payload.tenant_name, slug=payload.slug, contact_email=payload.contact_email,
@@ -337,7 +390,10 @@ def _apply_style(branding: TenantBranding, style: dict, address, phone, registra
     if address is not None:
         branding.doc_address = address.strip()[:500] or None
     if phone is not None:
-        branding.doc_phone = phone.strip()[:50] or None
+        try:
+            branding.doc_phone = clean_phone(phone)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     if registration is not None:
         branding.doc_registration = registration.strip()[:200] or None
 

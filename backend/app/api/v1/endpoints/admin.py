@@ -8,7 +8,9 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.validators import clean_digits
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -25,7 +27,7 @@ from app.models.payment import SubscriptionPayment
 from app.schemas.tenant import TenantOut
 from app.core.security import hash_password, verify_password
 from app.core.currencies import WORLD_CURRENCIES
-from app.services.device_binding import suspend_credential, reactivate_credential, deregister_device
+from app.services.device_binding import suspend_credential, reactivate_credential, deregister_device, approve_blocked_device
 from app.services.subscription_events import log_subscription_event
 from app.services.usage import usage_snapshot
 from app.services.plan_expiry import is_expired, days_left, start_plan_term, renew_plan_term
@@ -49,6 +51,10 @@ class DeviceEventOut(BaseModel):
     detail: str | None
     acknowledged: bool
     created_at: datetime
+    user_name: str | None = None
+    user_email: str | None = None
+    tenant_name: str | None = None
+    can_approve: bool = False
 
     class Config:
         from_attributes = True
@@ -65,18 +71,38 @@ def list_device_events(
     q = db.query(DeviceEvent).order_by(DeviceEvent.created_at.desc())
     if unacknowledged_only:
         q = q.filter(DeviceEvent.acknowledged.is_(False))
-    return q.limit(200).all()
+    events = q.limit(200).all()
+    users = {u.id: u for u in db.query(User).filter(User.id.in_({e.user_id for e in events})).all()} if events else {}
+    tenants = {t.id: t for t in db.query(Tenant).filter(Tenant.id.in_({e.tenant_id for e in events if e.tenant_id})).all()} if events else {}
+    out = []
+    for e in events:
+        item = DeviceEventOut.model_validate(e)
+        u = users.get(e.user_id)
+        item.user_name = u.full_name if u else None
+        item.user_email = u.email if u else None
+        item.tenant_name = tenants[e.tenant_id].name if e.tenant_id in tenants else None
+        item.can_approve = (e.event_type == DeviceEventType.LOGIN_BLOCKED_OTHER_DEVICE
+                            and not e.acknowledged and bool(e.device_token))
+        out.append(item)
+    return out
 
 
 @router.post("/device-events/{event_id}/acknowledge")
-def acknowledge_event(event_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+def acknowledge_event(event_id: uuid.UUID, db: Session = Depends(get_db), admin: User = Depends(require_supreme_admin)):
+    """Marks the alert as seen. For a blocked login from a new device this also
+    approves that device, so the person can sign in from it right away."""
     event = db.query(DeviceEvent).filter(DeviceEvent.id == event_id).one_or_none()
     if event is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Event not found.")
+    approved = False
+    if (event.event_type == DeviceEventType.LOGIN_BLOCKED_OTHER_DEVICE and not event.acknowledged):
+        user = db.query(User).filter(User.id == event.user_id).one_or_none()
+        if user is not None and not user.is_suspended:
+            approved = approve_blocked_device(db, user=user, event=event, actor=admin)
     event.acknowledged = True
     db.add(event)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "device_approved": approved}
 
 
 @router.post("/users/{user_id}/suspend")
@@ -219,10 +245,10 @@ class SubscriptionPlanIn(BaseModel):
     name: str
     description: str | None = None
     currency: str = "INR"
-    price: float = 0
+    price: float = Field(0, ge=0)
     billing_cycle: str = "monthly"
-    max_users: int = 5
-    max_invoices_per_month: int | None = 100
+    max_users: int = Field(5, ge=0)
+    max_invoices_per_month: int | None = Field(100, ge=0)
     is_active: bool = True
     color: str = "#da1a31"
     has_priority_support: bool = False
@@ -230,9 +256,9 @@ class SubscriptionPlanIn(BaseModel):
     has_advanced_reports: bool = False
     has_multi_currency: bool = False
     is_trial: bool = False
-    trial_days: int = 14
-    max_branches: int = 1
-    max_products: int | None = None
+    trial_days: int = Field(14, ge=0)
+    max_branches: int = Field(1, ge=0)
+    max_products: int | None = Field(None, ge=0)
     has_employee_management: bool = False
     has_expense_tracking: bool = False
     has_multi_branch: bool = False
@@ -295,6 +321,18 @@ def deactivate_subscription_plan(plan_id: uuid.UUID, db: Session = Depends(get_d
     if plan is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Plan not found.")
     plan.is_active = False
+    db.add(plan)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/subscription-plans/{plan_id}/reactivate")
+def reactivate_subscription_plan(plan_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    """Turns a deactivated plan back on so it can be chosen again."""
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == plan_id).one_or_none()
+    if plan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Plan not found.")
+    plan.is_active = True
     db.add(plan)
     db.commit()
     return {"ok": True}
@@ -513,6 +551,8 @@ class PaymentSettingsIn(BaseModel):
     bank_name: str | None = None
     account_name: str | None = None
     account_number: str | None = None
+
+    _acct = field_validator("account_number")(lambda cls, v: clean_digits(v, "Account number"))
     ifsc_code: str | None = None
     upi_id: str | None = None
     supported_gateways: str | None = None
@@ -586,9 +626,20 @@ class CurrencyConfigOut(BaseModel):
     overrides: list[PlanOverrideOut]
 
 
+class CurrencyRateIn(BaseModel):
+    currency: str = Field(min_length=3, max_length=3)
+    rate_vs_base: float = Field(gt=0)
+
+
+class PlanOverrideIn(BaseModel):
+    plan_id: uuid.UUID
+    currency: str = Field(min_length=3, max_length=3)
+    price: float = Field(ge=0)
+
+
 class CurrencyConfigIn(BaseModel):
-    rates: list[CurrencyRateOut] = []
-    overrides: list[PlanOverrideOut] = []
+    rates: list[CurrencyRateIn] = []
+    overrides: list[PlanOverrideIn] = []
 
 
 @router.get("/currency-config", response_model=CurrencyConfigOut)

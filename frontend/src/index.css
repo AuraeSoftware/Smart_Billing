@@ -432,7 +432,8 @@ tbody tr:hover { background: var(--card-hover); }
 
 .tabs { display: none; } /* tabs replaced by sidebar nav in dashboard shells */
 
-.item-row { display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.item-row { display: grid; grid-template-columns: minmax(0, 3fr) repeat(4, minmax(0, 1fr)) 96px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.item-row-head span { text-align: left; padding-left: 2px; }
 .item-row > * { min-width: 0; }
 .item-row input { box-sizing: border-box; width: 100%; }
 .item-row > button { white-space: nowrap; }
@@ -735,3 +736,37 @@ html { -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; }
   .doc-style-grid { grid-template-columns: minmax(0, 1fr); }
   .doc-style-frame iframe { height: 460px; }
 }
+
+/* ══════════════════════════════════════════════════════════
+   PRINT / SAVE AS PDF — capture the whole page, not just what fits on screen.
+   The app normally scrolls inside a fixed-height pane; for print that pane
+   is released so every card, chart and table row flows onto the paper.
+══════════════════════════════════════════════════════════ */
+@media print {
+  html, body, #root { height: auto !important; overflow: visible !important; background: #fff !important; }
+  .app-shell, .main-area, main.content, .content {
+    display: block !important; height: auto !important; max-height: none !important;
+    overflow: visible !important; padding-left: 0 !important; padding-right: 0 !important;
+  }
+  .sidebar, .sidebar-backdrop, .topbar, .hamburger-btn, .topbar-actions, .no-print,
+  .icon-btn-row, button, .btn, select, .table-scroll + .muted { display: none !important; }
+  .table-scroll { overflow: visible !important; max-width: none !important; }
+  .card, .kpi-card, .dashboard-card, table, tr, svg, .recharts-wrapper { break-inside: avoid; page-break-inside: avoid; }
+  .card { box-shadow: none !important; border: 1px solid #ddd !important; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  @page { margin: 12mm; }
+}
+
+/* Search box + pill select — one look for every list page */
+.search-box { position: relative; display: flex; align-items: center; flex: 1 1 220px; min-width: 0; }
+.search-box svg { position: absolute; left: 12px; color: var(--text-3); pointer-events: none; }
+.search-box input { width: 100%; padding-left: 36px; height: 40px; border-radius: 10px; }
+.select-pill { height: 40px; border-radius: 10px; min-width: 130px; }
+
+/* Grid children may shrink below their content, so wide tables scroll inside
+   their own .table-scroll instead of pushing the whole page sideways. */
+main.content [style*="grid"] > *, main.content .card, main.content .table-scroll { min-width: 0; max-width: 100%; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+main.content input[type="file"] { max-width: 100%; }
+.field, .field label { min-width: 0; max-width: 100%; }
+input[type="file"] { width: 100%; max-width: 100%; box-sizing: border-box; }

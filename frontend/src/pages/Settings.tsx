@@ -52,7 +52,7 @@ function BrandingSection() {
         font: b.doc_font || DEFAULT_DOC_STYLE.font,
         size: b.doc_font_size || DEFAULT_DOC_STYLE.size,
         accent: b.doc_accent_color || DEFAULT_DOC_STYLE.accent,
-        headerStyle: b.doc_header_style === 'image' ? 'image' : 'shape',
+        headerStyle: b.doc_header_style ? (b.doc_header_style === 'image' ? 'image' : 'shape') : (b.header_url ? 'image' : 'shape'),
         address: b.doc_address || '',
         phone: b.doc_phone || '',
         registration: b.doc_registration || '',
@@ -176,8 +176,8 @@ function TenantUsersSection() {
       {showForm && canManage && (
         <form onSubmit={onCreate} style={{ marginBottom: 16 }}>
           <div className="field"><label>Full name</label><input required value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
-          <div className="field"><label>Email</label><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-          <div className="field"><label>Temporary password</label><input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} /></div>
+          <div className="field"><label>Email</label><input type="email" name="staff-email" autoComplete="off" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          <div className="field"><label>Temporary password</label><input type="password" name="staff-temp-password" autoComplete="new-password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} /></div>
           {error && <p className="error-text">{error}</p>}
           <button className="btn amber" type="submit">Add</button>
         </form>

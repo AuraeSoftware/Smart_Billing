@@ -9,8 +9,20 @@
 export type CsvCell = string | number | boolean | null | undefined
 export interface CsvSection { title?: string; headers?: string[]; rows: CsvCell[][] }
 
+/** Dates are written as text (="2026-11-03") so Excel shows them as typed.
+ * As real date cells they turn into "########" whenever the column is
+ * narrower than the date, which is what a plain CSV always gives you. */
+const DATE_RE = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/
+
 function cell(value: CsvCell): string {
   let s = value === null || value === undefined ? '' : String(value)
+  if (typeof value === 'string') {
+    const m = DATE_RE.exec(s)
+    if (m && (s.length === 10 || /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s))) {
+      const text = m[2] ? `${m[1]} ${m[2]}` : m[1]
+      return `"=""${text}"""`
+    }
+  }
   if (typeof value === 'string' && /^[=+\-@]/.test(s) && Number.isNaN(Number(s))) s = `'${s}`
   return `"${s.replaceAll('"', '""')}"`
 }

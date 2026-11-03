@@ -13,7 +13,7 @@ export default function SubscribeBranding() {
   const [header, setHeader] = useState<File | null>(null)
   const [footer, setFooter] = useState<File | null>(null)
   const [footerText, setFooterText] = useState('')
-  const [style, setStyle] = useState<DocStyleValues>(DEFAULT_DOC_STYLE)
+  const [style, setStyle] = useState<DocStyleValues>({ ...DEFAULT_DOC_STYLE, headerStyle: 'image' })
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   // Free trial workspaces are approved by the platform administrator before

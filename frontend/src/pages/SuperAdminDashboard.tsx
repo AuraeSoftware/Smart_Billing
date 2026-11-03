@@ -41,7 +41,7 @@ const NAV_ITEMS: NavItem[] = [
 // side changes; this only keeps the nav from offering tabs that role can't
 // use. All other tabs call require_tenant_staff and stay available to both
 // roles, unchanged.
-const SUPER_ADMIN_ONLY_KEYS = new Set(['team', 'catalog', 'gst-manager'])
+const SUPER_ADMIN_ONLY_KEYS = new Set(['team', 'catalog', 'gst-manager', 'my-plan', 'settings'])
 
 interface LineItem { description: string; quantity: number; unit_price: number; tax_rate_percent: number; discount_percent: number }
 
@@ -996,7 +996,16 @@ function InvoicePaymentModal({
       ) : (
         <div className="field"><label>Amount received</label><input value={money(remaining, currency)} readOnly /></div>
       )}
-      <div className="field"><label>Payment method</label><input placeholder="e.g. Bank transfer, Cash, UPI" value={method} onChange={(e) => setMethod(e.target.value)} /></div>
+      <div className="field"><label>Payment method</label>
+        <select value={method} onChange={(e) => setMethod(e.target.value)}>
+          <option value="">Select a method</option>
+          <option value="cash">Cash</option>
+          <option value="upi">UPI</option>
+          <option value="bank_transfer">Bank transfer</option>
+          <option value="card">Card</option>
+          <option value="cheque">Cheque</option>
+          <option value="other">Other</option>
+        </select></div>
       <div className="field"><label>Reference (optional)</label><input value={reference} onChange={(e) => setReference(e.target.value)} /></div>
       <div className="field"><label>Date received</label><input type="date" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} /></div>
       {error && <p className="error-text">{error}</p>}
@@ -1291,8 +1300,12 @@ function ReceiptsPanel() {
               <select value={method} onChange={(e) => setMethod(e.target.value)}>
                 <option value="cash">Cash</option>
                 <option value="bank_transfer">Bank transfer</option>
+                <option value="upi">UPI</option>
+                <option value="card">Card</option>
+                <option value="cheque">Cheque</option>
                 <option value="razorpay">Razorpay</option>
                 <option value="billplz">Billplz</option>
+                <option value="other">Other</option>
               </select>
             </div>
             <div className="field" style={{ flex: 1, minWidth: 160 }}>

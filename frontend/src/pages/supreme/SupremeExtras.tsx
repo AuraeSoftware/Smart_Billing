@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { apiFetch, ApiError } from '../../lib/api'
 import { downloadCsv } from '../../lib/csv'
+import PasswordField from '../../components/PasswordField'
 import { DashboardCard, KpiCard, StatusChip, EmptyState, Modal, DetailRow, Icon, IconButton, ICONS, readableAccent } from '../../components/DashboardUI'
 
 /**
@@ -460,6 +461,10 @@ export function SubscriptionPlansPage() {
     await apiFetch(`/admin/subscription-plans/${id}`, { method: 'DELETE' })
     load()
   }
+  async function reactivate(id: string) {
+    await apiFetch(`/admin/subscription-plans/${id}/reactivate`, { method: 'POST' })
+    load()
+  }
 
   // True delete — separate from Deactivate above (unchanged). Only ever
   // offered on an already-deactivated plan; the backend additionally
@@ -495,27 +500,27 @@ export function SubscriptionPlansPage() {
 
       {/* Row 2 — pricing & billing */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-        <label>Price<input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} /></label>
+        <label>Price<input type="number" min={0} step="0.01" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} /></label>
         <label>Billing cycle
           <select value={form.billing_cycle} onChange={(e) => setForm({ ...form, billing_cycle: e.target.value })}>
             <option value="monthly">Monthly</option>
             <option value="yearly">Yearly</option>
           </select>
         </label>
-        <label>Max users<input type="number" value={form.max_users} onChange={(e) => setForm({ ...form, max_users: Number(e.target.value) })} /></label>
+        <label>Max users<input type="number" min={0} step="1" value={form.max_users} onChange={(e) => setForm({ ...form, max_users: Number(e.target.value) })} /></label>
       </div>
 
       {/* Row 3 — quotas */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <label>Invoices / month
-          <input type="number" placeholder="Blank = unlimited" value={form.max_invoices_per_month ?? ''}
+          <input type="number" min={0} step="1" placeholder="Blank = unlimited" value={form.max_invoices_per_month ?? ''}
             onChange={(e) => setForm({ ...form, max_invoices_per_month: e.target.value === '' ? null : Number(e.target.value) })} />
         </label>
         <label>Max products
-          <input type="number" placeholder="Blank = unlimited" value={form.max_products ?? ''}
+          <input type="number" min={0} step="1" placeholder="Blank = unlimited" value={form.max_products ?? ''}
             onChange={(e) => setForm({ ...form, max_products: e.target.value === '' ? null : Number(e.target.value) })} />
         </label>
-        <label>Max branches<input type="number" value={form.max_branches} onChange={(e) => setForm({ ...form, max_branches: Number(e.target.value) })} /></label>
+        <label>Max branches<input type="number" min={0} step="1" value={form.max_branches} onChange={(e) => setForm({ ...form, max_branches: Number(e.target.value) })} /></label>
       </div>
 
       {/* Row 4 — trial toggle, inline with its day count so it doesn't push
@@ -526,7 +531,7 @@ export function SubscriptionPlansPage() {
           Free trial — skips payment, 1 use per company
         </label>
         {form.is_trial && (
-          <label>Trial days<input type="number" value={form.trial_days} onChange={(e) => setForm({ ...form, trial_days: Number(e.target.value) })} /></label>
+          <label>Trial days<input type="number" min={0} step="1" value={form.trial_days} onChange={(e) => setForm({ ...form, trial_days: Number(e.target.value) })} /></label>
         )}
       </div>
 
@@ -654,7 +659,12 @@ export function SubscriptionPlansPage() {
                         <IconButton icon="edit" title={`Edit ${label.toLowerCase()} plan`} onClick={() => openEdit(row)} />
                         {row.is_active
                           ? <IconButton icon="xCircle" title={`Deactivate ${label.toLowerCase()} plan`} tone="red" onClick={() => deactivate(row.id)} />
-                          : <IconButton icon="trash" title={`Delete ${label.toLowerCase()} plan permanently`} tone="red" onClick={() => openDeleteConfirm(row)} />}
+                          : (
+                            <>
+                              <IconButton icon="checkCircle" tone="green" title={`Reactivate ${label.toLowerCase()} plan`} onClick={() => reactivate(row.id)} />
+                              <IconButton icon="trash" title={`Delete ${label.toLowerCase()} plan permanently`} tone="red" onClick={() => openDeleteConfirm(row)} />
+                            </>
+                          )}
                       </div>
                     </div>
                   ))}
@@ -712,6 +722,7 @@ export function CurrencyConfigPage() {
   const [saving, setSaving] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [addCurrency, setAddCurrency] = useState('')
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
 
   async function load() {
@@ -749,14 +760,20 @@ export function CurrencyConfigPage() {
   }
   function addNewCurrency() {
     const c = addCurrency.trim().toUpperCase()
-    if (!c) return
+    if (!c) { setNotice({ kind: 'error', text: 'Choose a currency from the list first, then press Add.' }); return }
     setRates((r) => ({ ...r, [c]: r[c] ?? 1 }))
     setAddCurrency('')
+    setSearch('')
     setExpanded(c)
+    setNotice({ kind: 'ok', text: `${c} added. Set its rate below, then press Save Configuration.` })
+    setTimeout(() => document.getElementById(`cur-row-${c}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80)
   }
 
   async function save() {
+    const bad = Object.entries(rates).find(([, v]) => !(Number(v) > 0))
+    if (bad) { setNotice({ kind: 'error', text: `The exchange rate for ${bad[0]} must be greater than 0.` }); return }
     setSaving(true)
+    setNotice(null)
     try {
       const ratesPayload: CurrencyRate[] = Object.entries(rates).map(([currency, rate_vs_base]) => ({ currency, rate_vs_base }))
       const overridesPayload: PlanOverride[] = []
@@ -766,6 +783,9 @@ export function CurrencyConfigPage() {
         })
       })
       await apiFetch('/admin/currency-config', { method: 'PUT', body: JSON.stringify({ rates: ratesPayload, overrides: overridesPayload }) })
+      setNotice({ kind: 'ok', text: 'Currency configuration saved.' })
+    } catch (err) {
+      setNotice({ kind: 'error', text: err instanceof ApiError ? err.message : 'Could not save. Please try again.' })
     } finally {
       setSaving(false)
     }
@@ -809,6 +829,7 @@ export function CurrencyConfigPage() {
         </select>
         <button className="btn secondary" onClick={addNewCurrency}>Add</button>
       </div>
+      {notice && <p className={notice.kind === 'error' ? 'error-text' : 'muted'} role="status" style={{ marginTop: -6 }}>{notice.text}</p>}
 
       <div className="table-scroll">
           <table>
@@ -817,10 +838,10 @@ export function CurrencyConfigPage() {
           {currencies.length === 0 && <tr><td colSpan={3} className="muted">No matches found.</td></tr>}
           {currencies.map((c) => (
             <Fragment key={c}>
-              <tr style={{ cursor: 'pointer' }} onClick={() => setExpanded(expanded === c ? null : c)}>
+              <tr id={`cur-row-${c}`} style={{ cursor: 'pointer' }} onClick={() => setExpanded(expanded === c ? null : c)}>
                 <td style={{ fontWeight: 700 }}>{c}{currencyName(c) && <span className="muted" style={{ fontWeight: 400, marginLeft: 6 }}>{currencyName(c)}</span>}</td>
                 <td onClick={(e) => e.stopPropagation()}>
-                  <input type="number" step="0.0001" value={rates[c] ?? 1} onChange={(e) => setRate(c, Number(e.target.value))} style={{ width: 110 }} />
+                  <input type="number" min={0.0001} step="0.0001" value={rates[c] ?? 1} onChange={(e) => setRate(c, Number(e.target.value))} style={{ width: 110 }} />
                 </td>
                 <td className="muted">{expanded === c ? 'Hide overrides ▲' : 'Configure overrides ▼'}</td>
               </tr>
@@ -835,7 +856,7 @@ export function CurrencyConfigPage() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span className="muted" style={{ fontSize: 12 }}>Converted: {(p.price * (rates[c] ?? 1)).toFixed(2)} {c}</span>
                             <input
-                              type="number" placeholder="Override…"
+                              type="number" min={0} step="0.01" placeholder="Override…"
                               value={overrides[c]?.[p.id] ?? ''}
                               onChange={(e) => setOverride(c, p.id, Number(e.target.value))}
                               style={{ width: 110 }}
@@ -933,7 +954,7 @@ export function SubscriptionHistoryPage() {
         ['Events in report', filtered.length],
       ] },
       { headers: ['Date', 'Tenant', 'Event', 'Old value', 'New value', 'By'],
-        rows: filtered.map((e) => [e.created_at, e.tenant_name || '-', e.event_type, e.old_value || '-', e.new_value || '-', e.changed_by_label || 'system']) },
+        rows: filtered.map((e) => [e.created_at.slice(0, 16).replace('T', ' '), e.tenant_name || '-', e.event_type, e.old_value || '-', e.new_value || '-', e.changed_by_label || 'system']) },
     ])
   }
 
@@ -944,13 +965,16 @@ export function SubscriptionHistoryPage() {
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--text)' }}>Subscription History</h2>
           <p style={{ margin: '3px 0 0', fontSize: 13, color: 'var(--text-3)' }}>Every signup, activation, suspension, and plan/currency change across all tenants.</p>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 180 }} />
-          <select value={period} onChange={(e) => setPeriod(e.target.value as typeof period)}>
-            <option value="All">All Time</option>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="search-box" style={{ width: 'min(300px, 100%)' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+            <input type="search" aria-label="Search history" placeholder="Search by business name, event or plan, e.g. Acme or plan changed" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <select aria-label="Duration" className="select-pill" value={period} onChange={(e) => setPeriod(e.target.value as typeof period)}>
+            <option value="All">All time</option>
             <option value="Day">Today</option>
-            <option value="Month">This Month</option>
-            <option value="Year">This Year</option>
+            <option value="Month">This month</option>
+            <option value="Year">This year</option>
           </select>
           <button className="btn" onClick={exportCsv} disabled={filtered.length === 0}>Export Report (CSV)</button>
         </div>
@@ -1018,11 +1042,16 @@ export function PaymentSettingsPage() {
     apiFetch<PaymentSettings>('/admin/payment-settings').then((s) => setForm({ ...emptyPayment, ...s })).finally(() => setLoading(false))
   }, [])
 
+  const [saveError, setSaveError] = useState<string | null>(null)
   async function save() {
-    setSaved(false)
-    const updated = await apiFetch<PaymentSettings>('/admin/payment-settings', { method: 'PUT', body: JSON.stringify(form) })
-    setForm({ ...emptyPayment, ...updated })
-    setSaved(true)
+    setSaved(false); setSaveError(null)
+    try {
+      const updated = await apiFetch<PaymentSettings>('/admin/payment-settings', { method: 'PUT', body: JSON.stringify(form) })
+      setForm({ ...emptyPayment, ...updated })
+      setSaved(true)
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : 'Could not save. Please try again.')
+    }
   }
 
   if (loading) return <DashboardCard title="Payment Settings"><p className="muted">Loading…</p></DashboardCard>
@@ -1031,9 +1060,9 @@ export function PaymentSettingsPage() {
     <div style={{ display: 'grid', gap: 20 }}>
       <DashboardCard title="Razorpay Configuration" subtitle="Used to collect plan payments from workspaces. Secret keys are hidden after you save.">
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-          <label>Razorpay Key ID<input value={form.razorpay_key_id || ''} onChange={(e) => setForm({ ...form, razorpay_key_id: e.target.value })} placeholder="rzp_live_xxx…" /></label>
-          <label>Razorpay Key Secret<input type="password" value={form.razorpay_key_secret || ''} onChange={(e) => setForm({ ...form, razorpay_key_secret: e.target.value })} placeholder="Enter secret key" /></label>
-          <label>Webhook Secret<input type="password" value={form.razorpay_webhook_secret || ''} onChange={(e) => setForm({ ...form, razorpay_webhook_secret: e.target.value })} placeholder="Required for payment webhooks" /></label>
+          <label>Razorpay Key ID<input autoComplete="off" name="rzp-key-id" value={form.razorpay_key_id || ''} onChange={(e) => setForm({ ...form, razorpay_key_id: e.target.value })} placeholder="rzp_live_xxx…" /></label>
+          <PasswordField label="Razorpay Key Secret" autoComplete="new-password" placeholder="Enter secret key" value={form.razorpay_key_secret || ''} onChange={(v) => setForm({ ...form, razorpay_key_secret: v })} />
+          <PasswordField label="Webhook Secret" autoComplete="new-password" placeholder="Required for payment webhooks" value={form.razorpay_webhook_secret || ''} onChange={(v) => setForm({ ...form, razorpay_webhook_secret: v })} />
         </div>
       </DashboardCard>
 
@@ -1041,7 +1070,7 @@ export function PaymentSettingsPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
           <label>Bank name<input value={form.bank_name || ''} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} /></label>
           <label>Account name<input value={form.account_name || ''} onChange={(e) => setForm({ ...form, account_name: e.target.value })} /></label>
-          <label>Account number<input value={form.account_number || ''} onChange={(e) => setForm({ ...form, account_number: e.target.value })} /></label>
+          <label>Account number<input inputMode="numeric" data-digits maxLength={20} autoComplete="off" placeholder="Digits only" value={form.account_number || ''} onChange={(e) => setForm({ ...form, account_number: e.target.value })} /></label>
           <label>IFSC code<input value={form.ifsc_code || ''} onChange={(e) => setForm({ ...form, ifsc_code: e.target.value })} /></label>
           <label>UPI ID<input value={form.upi_id || ''} onChange={(e) => setForm({ ...form, upi_id: e.target.value })} /></label>
           <label>Supported gateways<input value={form.supported_gateways || ''} onChange={(e) => setForm({ ...form, supported_gateways: e.target.value })} placeholder="Razorpay, Stripe, UPI" /></label>
@@ -1052,6 +1081,7 @@ export function PaymentSettingsPage() {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <button className="btn" onClick={save}>Save Payment Settings</button>
         {saved && <span className="status-chip status-chip-green">Saved</span>}
+        {saveError && <span className="error-text" style={{ margin: 0 }}>{saveError}</span>}
       </div>
     </div>
   )

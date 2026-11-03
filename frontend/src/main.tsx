@@ -5,8 +5,10 @@ import './index.css'
 import App from './App.tsx'
 import { AuthProvider } from './lib/auth'
 import { initTheme } from './lib/theme'
+import { installInputGuards } from './lib/inputGuards'
 
 initTheme()
+installInputGuards()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

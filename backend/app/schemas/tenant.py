@@ -2,7 +2,9 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+
+from app.core.validators import clean_phone
 
 
 class TenantSignupRequest(BaseModel):
@@ -17,6 +19,14 @@ class TenantSignupRequest(BaseModel):
     super_admin_email: EmailStr
     super_admin_password: str
     super_admin_mobile_number: str
+
+    @field_validator("super_admin_mobile_number")
+    @classmethod
+    def _mobile(cls, v: str) -> str:
+        cleaned = clean_phone(v)
+        if cleaned is None:
+            raise ValueError("Enter your mobile number.")
+        return cleaned
     subscription_plan_id: UUID
     # The currency the plan picker showed them (converted via live rate or a
     # manual override) — recorded on the tenant so invoices/reports start in

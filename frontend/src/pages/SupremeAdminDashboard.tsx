@@ -44,6 +44,7 @@ interface TenantRow {
 interface DeviceEventRow {
   id: string; user_id: string; tenant_id: string | null; event_type: string
   device_label: string | null; detail: string | null; acknowledged: boolean; created_at: string
+  user_name?: string | null; user_email?: string | null; tenant_name?: string | null; can_approve?: boolean
 }
 interface TenantRevenueRow {
   tenant_id: string
@@ -141,7 +142,8 @@ export default function SupremeAdminDashboard() {
   useEffect(() => { loadTenants(); loadEvents() }, [unackOnly])
 
   async function acknowledge(id: string) {
-    await apiFetch(`/admin/device-events/${id}/acknowledge`, { method: 'POST' })
+    const r = await apiFetch<{ device_approved?: boolean }>(`/admin/device-events/${id}/acknowledge`, { method: 'POST' })
+    setDeviceNote(r?.device_approved ? 'New device approved. They can sign in from it now.' : 'Marked as seen.')
     loadEvents()
   }
   async function suspend(userId: string) {
@@ -157,6 +159,7 @@ export default function SupremeAdminDashboard() {
     loadEvents()
   }
 
+  const [deviceNote, setDeviceNote] = useState<string | null>(null)
   const unacknowledgedCount = events.filter((e) => !e.acknowledged).length
 
   return (
@@ -198,18 +201,20 @@ export default function SupremeAdminDashboard() {
             Super Admin credential appears below; suspend a credential directly if it looks wrong.
           </p>
           {eventsError && <p className="error-text">{eventsError}</p>}
+          {deviceNote && <p className="muted" role="status">{deviceNote}</p>}
           <div className="table-scroll">
           <table>
-            <thead><tr><th>When</th><th>Event</th><th>Device</th><th>Detail</th><th></th></tr></thead>
+            <thead><tr><th>When</th><th>Account</th><th>Event</th><th>Device</th><th>Detail</th><th></th></tr></thead>
             <tbody>
               {events.map((ev) => (
                 <tr key={ev.id}>
                   <td>{new Date(ev.created_at).toLocaleString()}</td>
+                  <td>{ev.user_name || '—'}<div className="muted" style={{ fontSize: 12 }}>{[ev.user_email, ev.tenant_name].filter(Boolean).join(' · ')}</div></td>
                   <td>{ev.event_type.replaceAll('_', ' ')}</td>
                   <td>{ev.device_label || '—'}</td>
                   <td>{ev.detail}</td>
                   <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {!ev.acknowledged && <button className="btn secondary" onClick={() => acknowledge(ev.id)}>Acknowledge</button>}
+                    {!ev.acknowledged && <button className="btn secondary" title={ev.can_approve ? 'Marks this as seen and lets this device sign in' : 'Marks this as seen'} onClick={() => acknowledge(ev.id)}>{ev.can_approve ? 'Acknowledge & allow login' : 'Acknowledge'}</button>}
                     {ev.event_type === 'login_blocked_other_device' && (
                       <>
                         <button className="btn warn" onClick={() => suspend(ev.user_id)}>Suspend credential</button>
@@ -222,7 +227,7 @@ export default function SupremeAdminDashboard() {
                   </td>
                 </tr>
               ))}
-              {events.length === 0 && <tr><td colSpan={5} className="muted">No events to show.</td></tr>}
+              {events.length === 0 && <tr><td colSpan={6} className="muted">No events to show.</td></tr>}
             </tbody>
           </table>
           </div>

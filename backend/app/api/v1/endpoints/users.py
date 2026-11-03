@@ -7,6 +7,7 @@ Super Admin or a Supreme Admin.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -86,6 +87,61 @@ def reactivate_tenant_user(
     if not user.is_active:
         check_user_limit(db, tenant_id)
     user.is_active = True
+    db.add(user)
+    db.commit()
+    return {"ok": True}
+
+
+def _own_team_user(db: Session, tenant_id: str, user_id: uuid.UUID) -> User:
+    user = db.query(User).filter(
+        User.id == user_id, User.tenant_id == tenant_id, User.role == UserRole.TENANT_USER
+    ).one_or_none()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant user not found.")
+    return user
+
+
+class TenantUserUpdate(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    email: EmailStr
+
+
+class TenantUserPasswordReset(BaseModel):
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@router.put("/{user_id}", response_model=TenantUserOut)
+def update_tenant_user(
+    user_id: uuid.UUID,
+    payload: TenantUserUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_super_admin),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    """Edit a team member's name and sign-in email."""
+    user = _own_team_user(db, tenant_id, user_id)
+    clash = db.query(User).filter(User.email == payload.email, User.id != user.id).one_or_none()
+    if clash is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That email is already registered.")
+    user.full_name = payload.full_name.strip()
+    user.email = payload.email
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.post("/{user_id}/reset-password")
+def reset_tenant_user_password(
+    user_id: uuid.UUID,
+    payload: TenantUserPasswordReset,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_super_admin),
+    tenant_id: str = Depends(current_tenant_id),
+):
+    """Set a new password for a team member (they are not asked for the old one)."""
+    user = _own_team_user(db, tenant_id, user_id)
+    user.hashed_password = hash_password(payload.new_password)
     db.add(user)
     db.commit()
     return {"ok": True}

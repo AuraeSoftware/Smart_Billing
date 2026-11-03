@@ -2,7 +2,9 @@ from datetime import date, datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.validators import clean_phone
 
 
 class LineItemIn(BaseModel):
@@ -48,6 +50,8 @@ class InvoiceCreate(BaseModel):
     customer_email: Optional[str] = None
     customer_address: Optional[str] = None
     customer_phone: Optional[str] = None
+
+    _phone = field_validator("customer_phone")(lambda cls, v: clean_phone(v))
     # SB04: optional — when the picker's "select existing" path is used the
     # frontend can send this id directly; when omitted (every existing call
     # site), the backend finds-or-creates a Customer by customer_name as
@@ -97,6 +101,8 @@ class QuotationCreate(BaseModel):
     customer_name: str
     customer_email: Optional[str] = None
     customer_phone: Optional[str] = None
+
+    _phone = field_validator("customer_phone")(lambda cls, v: clean_phone(v))
     customer_address: Optional[str] = None
     # SB04: same optional explicit-customer override as InvoiceCreate.
     customer_id: Optional[UUID] = None

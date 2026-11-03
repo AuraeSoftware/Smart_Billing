@@ -17,6 +17,26 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+/** FastAPI sends validation problems as a list of objects; turn them into a
+ * short sentence a person can act on instead of "[object Object]". */
+function friendlyDetail(d: unknown): string {
+  if (typeof d === 'string') return d
+  if (!Array.isArray(d)) return ''
+  const parts = d.map((e: { loc?: unknown[]; msg?: string; type?: string }) => {
+    const field = String((e.loc || []).filter((x) => x !== 'body' && x !== 'query').slice(-1)[0] ?? '').replace(/_/g, ' ')
+    let msg = e.msg || 'is not valid'
+    if (/email/i.test(msg) || /email/.test(field)) msg = 'Enter a valid email address, like name@company.com.'
+    else if (e.type === 'missing') msg = `${cap(field) || 'This field'} is required.`
+    else if (/string_too_short|at least/i.test(e.type + ' ' + msg)) msg = `${cap(field) || 'This field'} is too short.`
+    else if (/greater_than|less_than|greater than|less than/i.test(e.type + ' ' + msg)) msg = `${cap(field) || 'This value'} is out of the allowed range.`
+    else if (/int_parsing|float_parsing|number/i.test(e.type + ' ' + msg)) msg = `${cap(field) || 'This value'} must be a number.`
+    else msg = `${cap(field) ? cap(field) + ': ' : ''}${msg.replace(/^Value error, /, '')}`
+    return msg
+  })
+  return Array.from(new Set(parts)).join(' ')
+}
+const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   // Important: when the body is FormData, we must NOT set a Content-Type
   // header at all -- not even by setting it to undefined, which the Fetch
@@ -39,7 +59,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     let detail = res.statusText
     try {
       const body = await res.json()
-      detail = body.detail || detail
+      detail = friendlyDetail(body.detail) || detail
     } catch {
       // ignore — non-JSON error body
     }

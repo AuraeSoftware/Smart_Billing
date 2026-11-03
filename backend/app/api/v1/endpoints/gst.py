@@ -8,7 +8,9 @@ tenant; settings are created lazily on first read.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+
+from app.core.validators import clean_pan
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -38,9 +40,11 @@ class GstSettingsIn(BaseModel):
     pan: str | None = None
     legal_name: str | None = None
     place_of_supply: str | None = None
-    default_cgst_percent: float = 0
-    default_sgst_percent: float = 0
-    default_igst_percent: float = 0
+    default_cgst_percent: float = Field(0, ge=0, le=100)
+    default_sgst_percent: float = Field(0, ge=0, le=100)
+    default_igst_percent: float = Field(0, ge=0, le=100)
+
+    _pan = field_validator("pan")(lambda cls, v: clean_pan(v))
 
 
 def _settings_out(s: TenantGstSettings) -> GstSettingsOut:
@@ -103,7 +107,7 @@ def _code_out(c: TenantTaxCode) -> TaxCodeOut:
 class TaxCodeIn(BaseModel):
     code: str
     description: str | None = None
-    gst_rate_percent: float = 0
+    gst_rate_percent: float = Field(0, ge=0, le=100)
 
 
 @router.get("/tax-codes", response_model=list[TaxCodeOut])

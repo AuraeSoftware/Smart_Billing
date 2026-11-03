@@ -87,6 +87,9 @@ def style_from_branding(branding: Optional[TenantBranding]) -> DocStyle:
         st.accent = branding.doc_accent_color.strip()
     if branding.doc_header_style in ("shape", "image"):
         st.header_style = branding.doc_header_style
+    elif getattr(branding, "header_url", None):
+        # No style chosen yet: a tenant that uploaded a header keeps seeing it.
+        st.header_style = "image"
     return st
 
 

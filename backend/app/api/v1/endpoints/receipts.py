@@ -69,6 +69,14 @@ def list_receipts(
     return db.query(Receipt).filter(Receipt.tenant_id == tenant_id).order_by(Receipt.created_at.desc()).all()
 
 
+def _method_label(value: str | None) -> str:
+    if not value:
+        return "-"
+    special = {"upi": "UPI", "razorpay": "Razorpay", "billplz": "Billplz"}
+    key = value.strip().lower()
+    return special.get(key) or value.replace("_", " ").strip().capitalize()
+
+
 @router.get("/{receipt_id}/pdf")
 def receipt_pdf(
     receipt_id: uuid.UUID,
@@ -90,7 +98,15 @@ def receipt_pdf(
     # no way to see the invoice's total, how much has been paid in all, or
     # what's still outstanding — added here without touching the existing
     # "Amount received" line or the full/partial wording above it.
-    remaining = max(float(invoice.grand_total) - float(invoice.amount_paid), 0)
+    # Each receipt shows the position as of ITS payment: what had been paid up
+    # to and including this receipt, not the invoice's balance today. (An
+    # older partial receipt used to show 0.00 once the invoice was settled.)
+    earlier = db.query(Receipt).filter(
+        Receipt.invoice_id == invoice.id, Receipt.tenant_id == tenant_id,
+        Receipt.created_at <= receipt.created_at,
+    ).all()
+    paid_to_date = min(sum(float(r.amount) for r in earlier) or float(receipt.amount), float(invoice.amount_paid) or float(receipt.amount))
+    remaining = max(float(invoice.grand_total) - paid_to_date, 0)
     pdf_bytes = render_document_pdf(
         doc_type="RECEIPT", number=receipt.number, tenant_name=tenant.name, branding=branding,
         customer_name=invoice.customer_name, issue_date=receipt.received_at.isoformat(),
@@ -98,14 +114,14 @@ def receipt_pdf(
         meta_fields=[("Against Invoice", invoice.number)],
         note="Payment Received",
         meta_lines=[
-            f"Payment method: {receipt.payment_method or '-'}",
+            f"Payment method: {_method_label(receipt.payment_method)}",
             *([f"Reference: {receipt.payment_reference}"] if receipt.payment_reference else []),
             *([f"Purpose: {receipt.notes}"] if receipt.notes else []),
         ],
         line_items=[{"description": f"Payment received ({'partial' if receipt.is_partial else 'full'})", "quantity": 1, "unit_price": f"{cur} {float(receipt.amount):,.2f}", "line_total": f"{cur} {float(receipt.amount):,.2f}"}],
         totals=[
             ("Invoice total", f"{cur} {float(invoice.grand_total):,.2f}"),
-            ("Total paid to date", f"{cur} {float(invoice.amount_paid):,.2f}"),
+            ("Total paid to date", f"{cur} {paid_to_date:,.2f}"),
             ("Balance remaining", f"{cur} {remaining:,.2f}"),
             ("Amount received", f"{cur} {float(receipt.amount):,.2f}"),
         ],
