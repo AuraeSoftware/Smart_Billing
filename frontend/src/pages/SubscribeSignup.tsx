@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { apiFetch, ApiError } from '../lib/api'
 import { Modal, readableAccent } from '../components/DashboardUI'
@@ -70,6 +70,43 @@ export default function SubscribeSignup() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  // Presentation only: the same single form is shown in three steps. Every
+  // field stays mounted (hidden, not removed), so state, validation and the
+  // submit payload are exactly what they were on the one-page form.
+  const [step, setStep] = useState(1)
+  const stepRefs = [useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null), useRef<HTMLDivElement>(null)]
+  const STEP_LABELS = ['Business', 'Plan', 'Account']
+  const hide = (n: number) => (step === n ? undefined : { display: 'none' as const })
+
+  /** Runs the browser's own validation on just the current step's fields. */
+  function stepIsValid(n: number): boolean {
+    const box = stepRefs[n - 1].current
+    if (!box) return true
+    const fields = Array.from(box.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select'))
+    for (const f of fields) {
+      if (!f.checkValidity()) { f.reportValidity(); return false }
+    }
+    return true
+  }
+
+  function checkStep(n: number): boolean {
+    setError(null)
+    if (!stepIsValid(n)) return false
+    if (n === 1 && (nationalNumber.length < len[0] || nationalNumber.length > len[1])) {
+      setError(`Enter a valid ${country.name} mobile number: ${len[0] === len[1] ? len[0] : `${len[0]} to ${len[1]}`} digits, numbers only.`)
+      return false
+    }
+    if (n === 2 && !form.subscription_plan_id) {
+      setError('Please choose a subscription plan.')
+      return false
+    }
+    return true
+  }
+
+  function goNext() {
+    if (checkStep(step)) { setStep((n) => Math.min(3, n + 1)); window.scrollTo({ top: 0 }) }
+  }
+  function goBack() { setError(null); setStep((n) => Math.max(1, n - 1)); window.scrollTo({ top: 0 }) }
 
   // World currency list for the dropdown — loaded once.
   useEffect(() => {
@@ -161,7 +198,10 @@ export default function SubscribeSignup() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
+    // Enter on an earlier step moves forward instead of submitting early.
+    if (step < 3) { goNext(); return }
     setError(null)
+    if (!stepIsValid(3)) return
     if (!form.subscription_plan_id) {
       setError('Please choose a subscription plan.')
       return
@@ -215,8 +255,24 @@ export default function SubscribeSignup() {
         ← Back to login
       </Link>
       <h1 style={{ textAlign: 'center' }}>Register Super Admin</h1>
-      <p className="muted" style={{ textAlign: 'center', marginTop: -6 }}>Step 1 — business details. Paid plans continue to payment next; the trial plan skips straight to branding.</p>
-      <form onSubmit={onSubmit}>
+      <p className="muted" style={{ textAlign: 'center', marginTop: -6 }}>Three quick steps. Paid plans continue to payment next; the trial plan skips straight to branding.</p>
+      <ol aria-label="Signup progress" style={{ display: 'flex', gap: 6, listStyle: 'none', padding: 0, margin: '14px 0 18px' }}>
+        {STEP_LABELS.map((label, i) => {
+          const n = i + 1
+          const done = n < step
+          const active = n === step
+          return (
+            <li key={label} aria-current={active ? 'step' : undefined} style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ height: 4, borderRadius: 4, background: done || active ? 'var(--accent)' : 'var(--border-2)', opacity: active ? 1 : done ? 0.6 : 1 }} />
+              <div style={{ fontSize: 12, fontWeight: active ? 800 : 600, marginTop: 6, color: active ? 'var(--text-1, inherit)' : 'var(--text-3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {n}. {label}
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+      <form onSubmit={onSubmit} noValidate>
+        <div ref={stepRefs[0]} style={hide(1)}>
           <div className="field">
             <label>Business name</label>
             <input required value={form.tenant_name} onChange={(e) => update('tenant_name', e.target.value)} />
@@ -252,8 +308,9 @@ export default function SubscribeSignup() {
               {len[0] === len[1] ? `${len[0]} digits` : `${len[0]} to ${len[1]} digits`} for {country.name} (+{country.dial}). Numbers only.
             </span>
           </div>
+        </div>
 
-          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />
+        <div ref={stepRefs[1]} style={hide(2)}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 4 }}>
             <p className="muted" style={{ margin: 0 }}>Choose a plan</p>
             <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, display: 'flex' }}>
@@ -404,7 +461,9 @@ export default function SubscribeSignup() {
             )
           })()}
 
-          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />
+        </div>
+
+        <div ref={stepRefs[2]} style={hide(3)}>
           <p className="muted">Your Super Admin account</p>
           <div className="field">
             <label>Full name</label>
@@ -418,18 +477,27 @@ export default function SubscribeSignup() {
             label="Password" value={form.super_admin_password} onChange={(v) => update('super_admin_password', v)}
             required minLength={8} autoComplete="new-password"
           />
+        </div>
           {error && <p className="error-text">{error}</p>}
           {/* SB11: this always said "Continue to branding" even when the
               chosen plan is paid, which actually navigates to the payment
               step first (see onSubmit above) — label now matches where
               submitting will actually take them. */}
-          <button className="btn" type="submit" disabled={loading || plans.length === 0} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+            {step > 1 && (
+              <button className="btn ghost" type="button" onClick={goBack} disabled={loading} style={{ flex: '0 0 auto' }}>← Back</button>
+            )}
+            {step < 3 && (
+              <button className="btn" type="button" onClick={goNext} disabled={step === 2 && plans.length === 0} style={{ flex: 1 }}>Next →</button>
+            )}
+          {step === 3 && <button className="btn" type="submit" disabled={loading || plans.length === 0} style={{ flex: 1 }}>
             {loading
               ? 'Creating…'
               : plans.find((p) => p.id === form.subscription_plan_id)?.is_trial === false
                 ? 'Continue to payment'
                 : 'Continue to branding'}
-          </button>
+          </button>}
+          </div>
       </form>
     </AuthSplitShell>
   )
