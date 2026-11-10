@@ -10,7 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.validators import clean_pan
+from app.core.validators import clean_pan, clean_phone
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -30,6 +30,10 @@ class GstSettingsOut(BaseModel):
     pan: str | None
     legal_name: str | None
     place_of_supply: str | None
+    address: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    tax_id: str | None = None
     default_cgst_percent: float
     default_sgst_percent: float
     default_igst_percent: float
@@ -40,16 +44,36 @@ class GstSettingsIn(BaseModel):
     pan: str | None = None
     legal_name: str | None = None
     place_of_supply: str | None = None
+    address: str | None = Field(None, max_length=500)
+    phone: str | None = None
+    email: str | None = Field(None, max_length=255)
+    tax_id: str | None = Field(None, max_length=60)
     default_cgst_percent: float = Field(0, ge=0, le=100)
     default_sgst_percent: float = Field(0, ge=0, le=100)
     default_igst_percent: float = Field(0, ge=0, le=100)
 
     _pan = field_validator("pan")(lambda cls, v: clean_pan(v))
 
+    @field_validator("phone")
+    @classmethod
+    def _phone(cls, v):
+        return clean_phone(v)
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v):
+        v = (v or "").strip()
+        if not v:
+            return None
+        if "@" not in v or " " in v or "." not in v.split("@")[-1]:
+            raise ValueError("Enter a valid email address.")
+        return v
+
 
 def _settings_out(s: TenantGstSettings) -> GstSettingsOut:
     return GstSettingsOut(
         gstin=s.gstin, pan=s.pan, legal_name=s.legal_name, place_of_supply=s.place_of_supply,
+        address=s.address, phone=s.phone, email=s.email, tax_id=s.tax_id,
         default_cgst_percent=float(s.default_cgst_percent),
         default_sgst_percent=float(s.default_sgst_percent),
         default_igst_percent=float(s.default_igst_percent),
@@ -66,6 +90,7 @@ def get_gst_settings(
     if s is None:
         return GstSettingsOut(
             gstin=None, pan=None, legal_name=None, place_of_supply=None,
+            address=None, phone=None, email=None, tax_id=None,
             default_cgst_percent=0, default_sgst_percent=0, default_igst_percent=0,
         )
     return _settings_out(s)

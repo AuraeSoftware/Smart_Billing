@@ -728,10 +728,12 @@ export function CatalogPage() {
 
 interface GstSettings {
   gstin: string | null; pan: string | null; legal_name: string | null; place_of_supply: string | null
+  address: string | null; phone: string | null; email: string | null; tax_id: string | null
   default_cgst_percent: number; default_sgst_percent: number; default_igst_percent: number
 }
 const emptyGstSettings: GstSettings = {
   gstin: '', pan: '', legal_name: '', place_of_supply: '',
+  address: '', phone: '', email: '', tax_id: '',
   default_cgst_percent: 0, default_sgst_percent: 0, default_igst_percent: 0,
 }
 interface TaxCode { id: string; code: string; description: string | null; gst_rate_percent: number }
@@ -810,6 +812,12 @@ export function GstManagerPage() {
             {panError && <span className="error-text" style={{ fontSize: 12 }}>{panError}</span>}</label>
           <label>Legal name<input value={settings.legal_name || ''} onChange={(e) => setSettings({ ...settings, legal_name: e.target.value })} /></label>
           <label>Place of supply<input value={settings.place_of_supply || ''} onChange={(e) => setSettings({ ...settings, place_of_supply: e.target.value })} placeholder="e.g. Kerala" /></label>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginTop: 12 }}>
+          <label>TIN / SSM no.<input maxLength={60} spellCheck={false} value={settings.tax_id || ''} onChange={(e) => setSettings({ ...settings, tax_id: e.target.value })} placeholder="Tax ID or SSM registration" /></label>
+          <label>Phone no.<input type="tel" maxLength={30} value={settings.phone || ''} onChange={(e) => setSettings({ ...settings, phone: e.target.value })} placeholder="+60 12 345 6789" /></label>
+          <label>Email<input type="email" maxLength={255} value={settings.email || ''} onChange={(e) => setSettings({ ...settings, email: e.target.value })} placeholder="accounts@business.com" /></label>
+          <label style={{ gridColumn: '1 / -1' }}>Address<textarea rows={2} maxLength={500} value={settings.address || ''} onChange={(e) => setSettings({ ...settings, address: e.target.value })} placeholder="Street, city, state, postcode" /></label>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginTop: 12 }}>
           <label>Default CGST %<input type="number" min={0} max={100} step="0.01" value={settings.default_cgst_percent} onChange={(e) => setSettings({ ...settings, default_cgst_percent: Number(e.target.value) })} /></label>

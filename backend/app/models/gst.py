@@ -23,6 +23,11 @@ class TenantGstSettings(Base):
     pan: Mapped[str | None] = mapped_column(String(15), nullable=True)
     legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     place_of_supply: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Business contact + registration number (Malaysia TIN / SSM, or any local tax id).
+    address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tax_id: Mapped[str | None] = mapped_column(String(60), nullable=True)
     default_cgst_percent: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=0)
     default_sgst_percent: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=0)
     default_igst_percent: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=0)

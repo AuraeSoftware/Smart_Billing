@@ -96,13 +96,27 @@ def style_from_branding(branding: Optional[TenantBranding]) -> DocStyle:
 def business_lines(tenant, branding: Optional[TenantBranding]) -> list[str]:
     """The tenant's own details for the "From" block (below its name)."""
     lines: list[str] = []
-    if branding and branding.doc_address:
-        lines += [ln.strip() for ln in branding.doc_address.splitlines() if ln.strip()]
-    contact = " | ".join(x for x in ((branding.doc_phone if branding else None), getattr(tenant, "contact_email", None)) if x)
+    # GST Manager details fill in anything the document-style settings leave blank.
+    gst = None
+    try:
+        from sqlalchemy.orm import object_session
+        from app.models.gst import TenantGstSettings
+        sess = object_session(tenant)
+        if sess is not None:
+            gst = sess.query(TenantGstSettings).filter(TenantGstSettings.tenant_id == tenant.id).one_or_none()
+    except Exception:
+        gst = None
+    address = (branding.doc_address if branding and branding.doc_address else None) or (gst.address if gst else None)
+    if address:
+        lines += [ln.strip() for ln in address.splitlines() if ln.strip()]
+    phone = (branding.doc_phone if branding and branding.doc_phone else None) or (gst.phone if gst else None)
+    email = getattr(tenant, "contact_email", None) or (gst.email if gst else None)
+    contact = " | ".join(x for x in (phone, email) if x)
     if contact:
         lines.append(contact)
-    if branding and branding.doc_registration:
-        lines.append(branding.doc_registration)
+    registration = (branding.doc_registration if branding and branding.doc_registration else None) or (gst.tax_id if gst else None)
+    if registration:
+        lines.append(registration)
     return lines
 
 
@@ -201,7 +215,19 @@ def render_document_pdf(
     footer_note = footer_text if footer_text is not None else (branding.footer_text if branding else None)
 
     bar_h = 31 * s
-    footer_img_h = 12 * s if (footer_img and os.path.exists(footer_img)) else 0
+    def _banner(path, max_h):
+        """Full-page-width banner: (width, height) keeping the image's own shape."""
+        try:
+            iw, ih = ImageReader(path).getSize()
+            h = page_w * ih / iw
+            if h > max_h:
+                return max_h * iw / ih, max_h
+            return page_w, h
+        except Exception:
+            return page_w, 0
+
+    footer_ok = bool(footer_img and os.path.exists(footer_img))
+    footer_img_w, footer_img_h = _banner(footer_img, page_h * 0.16) if footer_ok else (0, 0)
     bottom_limit = bar_h + footer_img_h + 18 * s
 
     contact_bits = [tenant_name]
@@ -214,7 +240,7 @@ def render_document_pdf(
     def draw_footer(c: canvas.Canvas, n: int, total: int):
         if footer_img_h:
             try:
-                c.drawImage(footer_img, margin, bar_h + 4 * s, width=page_w - 2 * margin, height=footer_img_h,
+                c.drawImage(footer_img, (page_w - footer_img_w) / 2, bar_h + 2 * s, width=footer_img_w, height=footer_img_h,
                             preserveAspectRatio=True, anchor="c", mask="auto")
             except Exception:
                 pass
@@ -255,9 +281,12 @@ def render_document_pdf(
     # ---------------- Header ----------------
     top = page_h
     if st.header_style == "image" and header_img and os.path.exists(header_img):
-        hh = 34 * s
-        image(header_img, margin, page_h - hh - 8 * s, page_w - 2 * margin, hh, anchor="c")
-        top = page_h - hh - 14 * s
+        hw, hh = _banner(header_img, page_h * 0.2)
+        if hh:
+            image(header_img, (page_w - hw) / 2, page_h - hh, hw, hh, anchor="c")
+        else:
+            hh = 34 * s
+        top = page_h - hh - 6 * s
         title_y = top - 34 * s
     else:
         c.setFillColor(colors.HexColor(accent))
