@@ -1043,8 +1043,22 @@ export function PaymentSettingsPage() {
   }, [])
 
   const [saveError, setSaveError] = useState<string | null>(null)
+  const webhookUrl = (() => {
+    const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api/v1'
+    try { return new URL(`${base.replace(/\/$/, '')}/subscription/razorpay-webhook`, window.location.origin).href } catch { return `${base}/subscription/razorpay-webhook` }
+  })()
+  const [copied, setCopied] = useState(false)
+  function copyWebhook() {
+    navigator.clipboard?.writeText(webhookUrl).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) }).catch(() => {})
+  }
+
   async function save() {
     setSaved(false); setSaveError(null)
+    const looksLikeUrl = (v: string | null) => !!v && /https?:\/\/|\//.test(v)
+    if (looksLikeUrl(form.razorpay_key_secret) || looksLikeUrl(form.razorpay_key_id)) {
+      setSaveError('The Razorpay Key ID and Key Secret must be the keys from your Razorpay dashboard, not a URL. The webhook URL goes into the Razorpay dashboard, not here.')
+      return
+    }
     try {
       const updated = await apiFetch<PaymentSettings>('/admin/payment-settings', { method: 'PUT', body: JSON.stringify(form) })
       setForm({ ...emptyPayment, ...updated })
@@ -1063,6 +1077,17 @@ export function PaymentSettingsPage() {
           <label>Razorpay Key ID<input autoComplete="off" name="rzp-key-id" value={form.razorpay_key_id || ''} onChange={(e) => setForm({ ...form, razorpay_key_id: e.target.value })} placeholder="rzp_live_xxx…" /></label>
           <PasswordField label="Razorpay Key Secret" autoComplete="new-password" placeholder="Enter secret key" value={form.razorpay_key_secret || ''} onChange={(v) => setForm({ ...form, razorpay_key_secret: v })} />
           <PasswordField label="Webhook Secret" autoComplete="new-password" placeholder="Required for payment webhooks" value={form.razorpay_webhook_secret || ''} onChange={(v) => setForm({ ...form, razorpay_webhook_secret: v })} />
+        </div>
+        <div style={{ marginTop: 14 }}>
+          <label>Webhook URL
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input readOnly value={webhookUrl} onFocus={(e) => e.currentTarget.select()} style={{ flex: 1, minWidth: 0 }} />
+              <button type="button" className="btn" onClick={copyWebhook} style={{ flex: '0 0 auto' }}>{copied ? 'Copied' : 'Copy'}</button>
+            </div>
+          </label>
+          <p className="muted" style={{ fontSize: 12, margin: '6px 0 0' }}>
+            In the Razorpay dashboard go to Settings, then Webhooks, and add this URL. Turn on the <strong>payment.captured</strong> event and enter the same secret as Webhook Secret above. It confirms a payment even if the customer closes the page right after paying.
+          </p>
         </div>
       </DashboardCard>
 
@@ -1358,7 +1383,7 @@ interface UpgradeRequestRow {
 export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = {}) {
   const [rows, setRows] = useState<UpgradeRequestRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'pending' | 'paid' | 'all'>('pending')
+  const [filter, setFilter] = useState<'paid' | 'all'>('paid')
   const [paidSummary, setPaidSummary] = useState<{ count: number; totals: Record<string, number> } | null>(null)
   const [acting, setActing] = useState<{ row: UpgradeRequestRow; action: 'approve' | 'reject' } | null>(null)
   const [reply, setReply] = useState('')
@@ -1367,7 +1392,7 @@ export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = 
 
   function load() {
     setLoading(true)
-    apiFetch<UpgradeRequestRow[]>(`/admin/upgrade-requests${filter === 'pending' ? '?status_filter=pending' : filter === 'paid' ? '?status_filter=paid' : ''}`)
+    apiFetch<UpgradeRequestRow[]>(`/admin/upgrade-requests${filter === 'paid' ? '?status_filter=paid' : ''}`)
       .then(setRows).catch(() => setRows([])).finally(() => setLoading(false))
     apiFetch<{ count: number; totals: Record<string, number> }>('/admin/upgrade-requests/paid-summary').then(setPaidSummary).catch(() => {})
   }
@@ -1386,7 +1411,7 @@ export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = 
   }
 
   return (
-    <DashboardCard title="Upgrade Requests" subtitle="Approve a request to move the workspace to the new plan and start its new term.">
+    <DashboardCard title="Plan Upgrades" subtitle="Workspaces that upgraded or renewed by paying online. Their plan changes automatically.">
       {paidSummary && paidSummary.count > 0 && (
         <p style={{ margin: '0 0 12px', padding: '8px 12px', borderRadius: 8, background: 'var(--bg-3)', border: '1px solid var(--border)', fontSize: 13 }}>
           <strong>{paidSummary.count}</strong> workspace{paidSummary.count === 1 ? '' : 's'} upgraded by online payment in the last 7 days
@@ -1395,12 +1420,11 @@ export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = 
         </p>
       )}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <button className={`btn${filter === 'pending' ? ' amber' : ''}`} onClick={() => setFilter('pending')}>Pending</button>
         <button className={`btn${filter === 'paid' ? ' amber' : ''}`} onClick={() => setFilter('paid')}>Paid online</button>
         <button className={`btn${filter === 'all' ? ' amber' : ''}`} onClick={() => setFilter('all')}>All</button>
       </div>
       {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
-        <EmptyState title={filter === 'pending' ? 'No pending requests' : filter === 'paid' ? 'No online payments yet' : 'No requests yet'} sub="Upgrade and renewal requests from Super Admins appear here." />
+        <EmptyState title={filter === 'paid' ? 'No online payments yet' : 'No upgrades yet'} sub="Upgrades and renewals paid by Super Admins appear here." />
       ) : (
         <div className="table-scroll">
           <table>

@@ -27,7 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'super-admins', label: 'Super Admins', icon: 'users' },
   { key: 'subscription-plans', label: 'Subscription Plans', icon: 'star' },
   { key: 'currency-config', label: 'Currency Config', icon: 'shield' },
-  { key: 'upgrade-requests', label: 'Upgrade Requests', icon: 'convert' },
+  { key: 'upgrade-requests', label: 'Plan Upgrades', icon: 'convert' },
   { key: 'subscription-history', label: 'Subscription History', icon: 'clock' },
   { key: 'credentials', label: 'Credentials', icon: 'key' },
   { key: 'devices', label: 'Device Alerts', icon: 'bell' },

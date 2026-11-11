@@ -113,7 +113,7 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
   const [open, setOpen] = useState(false)
   const [plans, setPlans] = useState<UpgradePlan[]>([])
   const [choice, setChoice] = useState('')
-  const [note, setNote] = useState('')
+  const [, setNote] = useState('')
   const [pay, setPay] = useState<PayInfo | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -130,19 +130,6 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
       setPlans(all.filter((p) => !p.is_trial))
     } catch { setPlans([]) }
     apiFetch<PayInfo | null>('/account/payment-settings').then(setPay).catch(() => {})
-  }
-
-  async function submit() {
-    setError(null)
-    if (!choice) { setError('Choose the plan you want.'); return }
-    setBusy(true)
-    try {
-      await apiFetch('/account/upgrade-requests', { method: 'POST', body: JSON.stringify({ plan_id: choice, note: note || null }) })
-      setOpen(false); setChoice(''); setNote('')
-      load(); onRequested?.()
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Could not send the request.')
-    } finally { setBusy(false) }
   }
 
   /** Online payment: pay by card/UPI/netbanking through Razorpay; the plan
@@ -178,18 +165,17 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
 
   const label = plan.expired ? 'Renew / upgrade plan' : 'Upgrade plan'
   return (
-    <DashboardCard title="Upgrade or renew" subtitle="Pick a plan and pay online to upgrade instantly, or send a request for Aurae to approve.">
-      {pending ? (
+    <DashboardCard title="Upgrade or renew" subtitle="Pick a plan and pay online. Your plan upgrades as soon as the payment succeeds.">
+      {pending && (
         <p style={{ color: 'var(--amber)', fontWeight: 700 }}>
-          Request for {pending.to_plan_name} sent on {pending.created_at.slice(0, 10)}. Awaiting approval from Aurae Software Solutions.
+          An earlier request for {pending.to_plan_name} is still awaiting approval. You can upgrade now by paying online.
         </p>
-      ) : (
-        <button className="btn amber" onClick={openDialog}>{label}</button>
       )}
+      <button className="btn amber" onClick={openDialog}>{label}</button>
       {requests.length > 0 && (
         <div className="table-scroll" style={{ marginTop: 16 }}>
           <table>
-            <thead><tr><th>Requested</th><th>Plan</th><th>Status</th><th>Reply</th></tr></thead>
+            <thead><tr><th>Date</th><th>Plan</th><th>Status</th><th>Details</th></tr></thead>
             <tbody>
               {requests.map((r) => (
                 <tr key={r.id}>
@@ -235,16 +221,12 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
               {pay.notes && <div className="muted">{pay.notes}</div>}
             </div>
           )}
-          <div className="field" style={{ marginTop: 12 }}>
-            <label>Payment reference or note (optional)</label>
-            <input maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. UPI ref 4821…" />
-          </div>
+          {pay && !pay.gateway_available && (
+            <p className="muted" style={{ marginTop: 12 }}>Online payment isn't set up yet. Please contact Aurae Software Solutions LLP to upgrade.</p>
+          )}
           {error && <p className="error-text">{error}</p>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            {pay?.gateway_available && (
-              <button className="btn amber" disabled={busy} onClick={payOnline}>{busy ? 'Please wait…' : 'Pay online & upgrade'}</button>
-            )}
-            <button className={`btn${pay?.gateway_available ? '' : ' amber'}`} disabled={busy} onClick={submit}>{busy ? 'Sending…' : 'Send request'}</button>
+            <button className="btn amber" disabled={busy || !pay?.gateway_available} onClick={payOnline}>{busy ? 'Please wait…' : 'Pay online & upgrade'}</button>
             <button className="btn" onClick={() => setOpen(false)}>Cancel</button>
           </div>
         </Modal>
