@@ -19,6 +19,10 @@ from app.services.usage import usage_snapshot
 from app.services.plan_expiry import is_expired, days_left
 from app.models.upgrade_request import PlanUpgradeRequest
 from app.services.subscription_events import log_subscription_event
+from app.models.payment import SubscriptionPayment
+from app.services.pricing import resolve_plan_price
+from app.services.razorpay_client import create_order, verify_signature, RazorpayError
+from app.services.payment_settlement import mark_paid, apply_upgrade_payment
 
 router = APIRouter()
 
@@ -338,6 +342,97 @@ def create_upgrade_request(
     db.commit()
     db.refresh(req)
     return _request_out(db, req)
+
+
+class UpgradeOrderIn(BaseModel):
+    plan_id: uuid.UUID
+
+
+class UpgradeOrderOut(BaseModel):
+    order_id: str
+    amount: int  # minor units, what Razorpay Checkout expects
+    currency: str
+    key_id: str
+    plan_name: str
+
+
+class UpgradeVerifyIn(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+@router.post("/upgrade-payment/create-order", response_model=UpgradeOrderOut)
+def create_upgrade_order(
+    payload: UpgradeOrderIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_super_admin),
+    tenant_id: str = Depends(current_tenant_id_allow_expired),
+):
+    """Pay for an upgrade / renewal online. The existing request-and-approve
+    path is untouched; this is the faster option when a gateway is set up."""
+    tenant = db.query(Tenant).filter(Tenant.id == uuid.UUID(tenant_id)).one_or_none()
+    if tenant is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tenant not found.")
+    plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == payload.plan_id, SubscriptionPlan.is_active.is_(True)).one_or_none()
+    if plan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That plan isn't available.")
+    if plan.is_trial:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The free trial can't be purchased.")
+    gw = db.query(PlatformPaymentSettings).first()
+    if gw is None or not gw.razorpay_key_id or not gw.razorpay_key_secret:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Online payment isn't set up yet. Send an upgrade request instead.",
+        )
+    charge_currency, charge_price = resolve_plan_price(db, plan, tenant.currency)
+    amount_minor = int(round(charge_price * 100))
+    try:
+        order = create_order(
+            key_id=gw.razorpay_key_id, key_secret=gw.razorpay_key_secret,
+            amount_minor=amount_minor, currency=charge_currency, receipt=f"upgrade-{tenant.id}"[:40],
+        )
+    except RazorpayError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    db.add(SubscriptionPayment(
+        tenant_id=tenant.id, subscription_plan_id=plan.id, amount=charge_price, currency=charge_currency,
+        gateway="razorpay", gateway_order_id=order["id"], status="created", purpose="upgrade",
+    ))
+    db.commit()
+    return UpgradeOrderOut(order_id=order["id"], amount=amount_minor, currency=charge_currency, key_id=gw.razorpay_key_id, plan_name=plan.name)
+
+
+@router.post("/upgrade-payment/verify")
+def verify_upgrade_payment(
+    payload: UpgradeVerifyIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_super_admin),
+    tenant_id: str = Depends(current_tenant_id_allow_expired),
+):
+    payment = db.query(SubscriptionPayment).filter(
+        SubscriptionPayment.tenant_id == uuid.UUID(tenant_id),
+        SubscriptionPayment.gateway_order_id == payload.razorpay_order_id,
+        SubscriptionPayment.purpose == "upgrade",
+    ).one_or_none()
+    if payment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No matching payment order found — start the payment again.")
+    if payment.status == "paid":
+        return {"status": "paid"}
+    gw = db.query(PlatformPaymentSettings).first()
+    if gw is None or not gw.razorpay_key_secret:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Online payment isn't set up yet.")
+    if not verify_signature(
+        key_secret=gw.razorpay_key_secret, order_id=payload.razorpay_order_id,
+        payment_id=payload.razorpay_payment_id, signature=payload.razorpay_signature,
+    ):
+        payment.status = "failed"
+        db.add(payment)
+        db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Payment verification failed. Please try again.")
+    if mark_paid(db, payment, payment_id=payload.razorpay_payment_id, signature=payload.razorpay_signature):
+        apply_upgrade_payment(db, payment, user_id=user.id)
+    db.commit()
+    return {"status": "paid"}
 
 
 @router.get("/upgrade-requests", response_model=list[UpgradeRequestOut])

@@ -38,7 +38,8 @@ def activate_tenant(db: Session, *, tenant: Tenant) -> Tenant:
         paid = db.query(SubscriptionPayment).filter(
             SubscriptionPayment.tenant_id == tenant.id,
             SubscriptionPayment.status == "paid",
-        ).one_or_none()
+            SubscriptionPayment.purpose == "signup",
+        ).first()
         if paid is None:
             raise OnboardingIncompleteError(
                 "Payment must be completed before the workspace can be activated."

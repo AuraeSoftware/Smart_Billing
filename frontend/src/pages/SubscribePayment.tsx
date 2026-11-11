@@ -116,7 +116,7 @@ export default function SubscribePayment() {
           Payments are processed securely by Razorpay. Your card and bank details never touch Smart Billing's servers.
         </p>
         <p className="muted" style={{ marginTop: 8, fontSize: 11 }}>
-          Going back starts a fresh signup — if you reuse the same workspace name or email, you'll need to change the slug slightly.
+          Going back lets you pick a different plan. Sign up again with the same email to continue.
         </p>
       </div>
     </div>

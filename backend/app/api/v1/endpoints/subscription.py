@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import tempfile
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -32,6 +32,7 @@ from app.services.subscription_events import log_subscription_event
 from app.services.trial import assert_trial_available, claim_trial, TrialAlreadyUsedError
 from app.services.razorpay_client import create_order, verify_signature, RazorpayError
 from app.services.pricing import resolve_plan_price
+from app.services.payment_settlement import mark_paid, apply_upgrade_payment
 from app.core.validators import clean_phone
 from app.core.currencies import WORLD_CURRENCIES, currency_for_phone
 from app.services.pdf import (
@@ -260,7 +261,8 @@ def create_payment_order(tenant_id: uuid.UUID, db: Session = Depends(get_db)):
 
     already_paid = db.query(SubscriptionPayment).filter(
         SubscriptionPayment.tenant_id == tenant.id, SubscriptionPayment.status == "paid",
-    ).one_or_none()
+        SubscriptionPayment.purpose == "signup",
+    ).first()
     if already_paid is not None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Payment has already been completed for this workspace.")
 
@@ -303,6 +305,7 @@ def verify_payment_order(tenant_id: uuid.UUID, payload: PaymentVerifyIn, db: Ses
     payment = db.query(SubscriptionPayment).filter(
         SubscriptionPayment.tenant_id == tenant_id,
         SubscriptionPayment.gateway_order_id == payload.razorpay_order_id,
+        SubscriptionPayment.purpose == "signup",
     ).one_or_none()
     if payment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No matching payment order found — start the payment again.")
@@ -336,6 +339,51 @@ def verify_payment_order(tenant_id: uuid.UUID, payload: PaymentVerifyIn, db: Ses
     return PaymentStatusOut(status="paid")
 
 
+@router.post("/razorpay-webhook")
+async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
+    """Safety net for a customer who pays and then closes the tab before the
+    browser's verify call runs. Razorpay signs the raw body with the webhook
+    secret (Supreme Admin > Payment Settings); an unsigned or mis-signed call
+    is rejected. Settles the same way the verify calls do, exactly once."""
+    import hashlib, hmac, json as _json
+    raw = await request.body()
+    gw = db.query(PlatformPaymentSettings).first()
+    secret = gw.razorpay_webhook_secret if gw else None
+    if not secret:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Webhook is not configured.")
+    sig = request.headers.get("X-Razorpay-Signature", "")
+    expected = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid signature.")
+    try:
+        body = _json.loads(raw)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid payload.")
+    if body.get("event") not in ("payment.captured", "order.paid"):
+        return {"ok": True}
+    ent = (body.get("payload", {}).get("payment", {}) or {}).get("entity", {}) or {}
+    order_id, pay_id = ent.get("order_id"), ent.get("id")
+    if not order_id or not pay_id:
+        return {"ok": True}
+    payment = db.query(SubscriptionPayment).filter(SubscriptionPayment.gateway_order_id == order_id).one_or_none()
+    if payment is None or payment.status == "paid":
+        return {"ok": True}
+    # Only trust a payment that matches what was ordered.
+    if ent.get("amount") != int(round(float(payment.amount) * 100)) or str(ent.get("currency", "")).upper() != payment.currency.upper():
+        return {"ok": True}
+    if mark_paid(db, payment, payment_id=pay_id, signature=None):
+        if payment.purpose == "upgrade":
+            apply_upgrade_payment(db, payment)
+        else:
+            tenant = db.query(Tenant).filter(Tenant.id == payment.tenant_id).one()
+            log_subscription_event(
+                db, tenant=tenant, event_type="payment_completed",
+                new_value=f"{payment.currency} {payment.amount}", note="Subscription payment confirmed via Razorpay webhook",
+            )
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/{tenant_id}/payment/status", response_model=PaymentStatusOut)
 def payment_status(tenant_id: uuid.UUID, db: Session = Depends(get_db)):
     """Lets the payment page resume correctly on refresh, and lets a trial
@@ -350,7 +398,8 @@ def payment_status(tenant_id: uuid.UUID, db: Session = Depends(get_db)):
         return PaymentStatusOut(status="not_required")
     paid = db.query(SubscriptionPayment).filter(
         SubscriptionPayment.tenant_id == tenant_id, SubscriptionPayment.status == "paid",
-    ).one_or_none()
+        SubscriptionPayment.purpose == "signup",
+    ).first()
     return PaymentStatusOut(status="paid" if paid else "pending")
 
 

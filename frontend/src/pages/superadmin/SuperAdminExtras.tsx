@@ -39,7 +39,19 @@ interface MyPlan {
 
 interface UpgradePlan { id: string; name: string; price: number; currency: string; billing_cycle: string; max_users: number; max_invoices_per_month: number | null; is_trial: boolean; color: string }
 interface UpgradeRequest { id: string; status: string; from_plan_name: string | null; to_plan_name: string; to_plan_price: number | null; to_plan_currency: string | null; to_plan_cycle: string | null; note: string | null; decision_note: string | null; created_at: string; decided_at: string | null }
-interface PayInfo { bank_name: string | null; account_name: string | null; account_number: string | null; ifsc_code: string | null; upi_id: string | null; notes: string | null }
+interface PayInfo { bank_name: string | null; account_name: string | null; account_number: string | null; ifsc_code: string | null; upi_id: string | null; notes: string | null; gateway_available?: boolean }
+
+function loadRazorpay(): Promise<void> {
+  const w = window as unknown as { Razorpay?: unknown }
+  if (w.Razorpay) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js'
+    s.onload = () => resolve()
+    s.onerror = () => reject(new Error('Could not load the payment gateway. Check your connection and try again.'))
+    document.body.appendChild(s)
+  })
+}
 
 export function MyPlanPage({ onPlanChanged }: { onPlanChanged?: () => void } = {}) {
   const [plan, setPlan] = useState<MyPlan | null>(null)
@@ -133,6 +145,37 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
     } finally { setBusy(false) }
   }
 
+  /** Online payment: pay by card/UPI/netbanking through Razorpay; the plan
+   * changes straight away once the payment is verified. */
+  async function payOnline() {
+    setError(null)
+    if (!choice) { setError('Choose the plan you want.'); return }
+    setBusy(true)
+    try {
+      await loadRazorpay()
+      const order = await apiFetch<{ order_id: string; amount: number; currency: string; key_id: string; plan_name: string }>(
+        '/account/upgrade-payment/create-order', { method: 'POST', body: JSON.stringify({ plan_id: choice }) })
+      const Rzp = (window as unknown as { Razorpay: new (o: Record<string, unknown>) => { open: () => void } }).Razorpay
+      new Rzp({
+        key: order.key_id, amount: order.amount, currency: order.currency, order_id: order.order_id,
+        name: 'Smart Billing', description: `${order.plan_name} plan`, theme: { color: '#da1a31' },
+        handler: async (resp: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+          try {
+            await apiFetch('/account/upgrade-payment/verify', { method: 'POST', body: JSON.stringify(resp) })
+            setOpen(false); setChoice(''); setNote('')
+            load(); onRequested?.()
+          } catch (e) {
+            setError(e instanceof ApiError ? e.message : 'Payment could not be verified. If money was deducted, contact Aurae Software Solutions.')
+          } finally { setBusy(false) }
+        },
+        modal: { ondismiss: () => setBusy(false) },
+      }).open()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Could not start the payment.')
+      setBusy(false)
+    }
+  }
+
   const label = plan.expired ? 'Renew / upgrade plan' : 'Upgrade plan'
   return (
     <DashboardCard title="Upgrade or renew" subtitle="Pick a plan and send a request. Your plan changes after Aurae approves it.">
@@ -198,6 +241,9 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
           </div>
           {error && <p className="error-text">{error}</p>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            {pay?.gateway_available && (
+              <button className="btn" disabled={busy} onClick={payOnline}>{busy ? 'Please wait…' : 'Pay online'}</button>
+            )}
             <button className="btn amber" disabled={busy} onClick={submit}>{busy ? 'Sending…' : 'Send request'}</button>
             <button className="btn" onClick={() => setOpen(false)}>Cancel</button>
           </div>
