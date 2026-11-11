@@ -31,6 +31,7 @@ class SubscriptionPayment(Base):
     gateway_signature: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="created")  # created | paid | failed
     # signup = the payment that gates first activation; upgrade = a later plan upgrade / renewal paid online.
+    upgrade_request_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("plan_upgrade_requests.id", ondelete="SET NULL"), nullable=True)
     purpose: Mapped[str] = mapped_column(String(20), nullable=False, default="signup", server_default="signup")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

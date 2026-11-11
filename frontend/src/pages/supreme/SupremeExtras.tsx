@@ -1348,12 +1348,18 @@ interface UpgradeRequestRow {
   decision_note: string | null
   created_at: string
   decided_at: string | null
+  paid_online?: boolean
+  paid_amount?: number | null
+  paid_currency?: string | null
+  payment_ref?: string | null
+  paid_at?: string | null
 }
 
 export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = {}) {
   const [rows, setRows] = useState<UpgradeRequestRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<'pending' | 'all'>('pending')
+  const [filter, setFilter] = useState<'pending' | 'paid' | 'all'>('pending')
+  const [paidSummary, setPaidSummary] = useState<{ count: number; totals: Record<string, number> } | null>(null)
   const [acting, setActing] = useState<{ row: UpgradeRequestRow; action: 'approve' | 'reject' } | null>(null)
   const [reply, setReply] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -1361,8 +1367,9 @@ export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = 
 
   function load() {
     setLoading(true)
-    apiFetch<UpgradeRequestRow[]>(`/admin/upgrade-requests${filter === 'pending' ? '?status_filter=pending' : ''}`)
+    apiFetch<UpgradeRequestRow[]>(`/admin/upgrade-requests${filter === 'pending' ? '?status_filter=pending' : filter === 'paid' ? '?status_filter=paid' : ''}`)
       .then(setRows).catch(() => setRows([])).finally(() => setLoading(false))
+    apiFetch<{ count: number; totals: Record<string, number> }>('/admin/upgrade-requests/paid-summary').then(setPaidSummary).catch(() => {})
   }
   useEffect(load, [filter])
 
@@ -1380,12 +1387,20 @@ export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = 
 
   return (
     <DashboardCard title="Upgrade Requests" subtitle="Approve a request to move the workspace to the new plan and start its new term.">
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+      {paidSummary && paidSummary.count > 0 && (
+        <p style={{ margin: '0 0 12px', padding: '8px 12px', borderRadius: 8, background: 'var(--bg-3)', border: '1px solid var(--border)', fontSize: 13 }}>
+          <strong>{paidSummary.count}</strong> workspace{paidSummary.count === 1 ? '' : 's'} upgraded by online payment in the last 7 days
+          {' ('}{Object.entries(paidSummary.totals).map(([c, v]) => `${c} ${v.toFixed(2)}`).join(', ')}{'). '}
+          Their plans were already updated, no approval needed. <button type="button" className="link-btn" style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', fontWeight: 700, cursor: 'pointer' }} onClick={() => setFilter('paid')}>View</button>
+        </p>
+      )}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <button className={`btn${filter === 'pending' ? ' amber' : ''}`} onClick={() => setFilter('pending')}>Pending</button>
+        <button className={`btn${filter === 'paid' ? ' amber' : ''}`} onClick={() => setFilter('paid')}>Paid online</button>
         <button className={`btn${filter === 'all' ? ' amber' : ''}`} onClick={() => setFilter('all')}>All</button>
       </div>
       {loading ? <p className="muted">Loading…</p> : rows.length === 0 ? (
-        <EmptyState title={filter === 'pending' ? 'No pending requests' : 'No requests yet'} sub="Upgrade and renewal requests from Super Admins appear here." />
+        <EmptyState title={filter === 'pending' ? 'No pending requests' : filter === 'paid' ? 'No online payments yet' : 'No requests yet'} sub="Upgrade and renewal requests from Super Admins appear here." />
       ) : (
         <div className="table-scroll">
           <table>
@@ -1396,10 +1411,12 @@ export function UpgradeRequestsPage({ onChanged }: { onChanged?: () => void } = 
                   <td>{r.created_at.slice(0, 10)}</td>
                   <td><strong>{r.tenant_name}</strong>{r.requested_by && <div className="muted" style={{ fontSize: 12 }}>{r.requested_by}</div>}</td>
                   <td style={{ whiteSpace: 'normal' }}>{r.from_plan_name || 'No plan'} → <strong>{r.to_plan_name}</strong></td>
-                  <td>{r.to_plan_price != null ? `${r.to_plan_currency} ${r.to_plan_price.toFixed(2)} / ${r.to_plan_cycle}` : '—'}</td>
+                  <td>{r.to_plan_price != null ? `${r.to_plan_currency} ${r.to_plan_price.toFixed(2)} / ${r.to_plan_cycle}` : '—'}
+                    {r.paid_online && <div style={{ fontSize: 12, color: 'var(--green)', fontWeight: 700 }}>Paid {r.paid_currency} {r.paid_amount?.toFixed(2)}{r.paid_at ? ` · ${r.paid_at.slice(0, 10)}` : ''}</div>}
+                    {r.payment_ref && <div className="muted" style={{ fontSize: 11 }}>Ref {r.payment_ref}</div>}</td>
                   <td>{r.current_expires_at ? <span style={r.expired ? { color: 'var(--red)', fontWeight: 700 } : undefined}>{r.expired ? 'Expired ' : ''}{r.current_expires_at}</span> : <span className="muted">No expiry</span>}</td>
                   <td style={{ whiteSpace: 'normal', maxWidth: 220 }}>{r.note || <span className="muted">—</span>}</td>
-                  <td><StatusChip status={r.status} /></td>
+                  <td><StatusChip status={r.status} />{r.paid_online && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>Paid online</div>}</td>
                   <td>
                     {r.status === 'pending' && (
                       <div style={{ display: 'flex', gap: 6 }}>

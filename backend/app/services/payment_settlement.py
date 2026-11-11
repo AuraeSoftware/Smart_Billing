@@ -43,17 +43,24 @@ def apply_upgrade_payment(db: Session, payment: SubscriptionPayment, *, user_id=
     pending = db.query(PlanUpgradeRequest).filter(
         PlanUpgradeRequest.tenant_id == tenant.id, PlanUpgradeRequest.status == "pending",
     ).all()
+    linked = None
     for r in pending:
         r.status = "approved"
         r.decision_note = "Paid online via Razorpay."
         r.decided_at = now
         db.add(r)
-    if not pending or all(r.to_plan_id != plan.id for r in pending):
-        db.add(PlanUpgradeRequest(
+        if linked is None and r.to_plan_id == plan.id:
+            linked = r
+    if linked is None:
+        linked = PlanUpgradeRequest(
             tenant_id=tenant.id, from_plan_id=tenant.subscription_plan_id, to_plan_id=plan.id,
             status="approved", note="Paid online", decision_note="Paid online via Razorpay.",
             requested_by_id=user_id, decided_at=now,
-        ))
+        )
+        db.add(linked)
+        db.flush()
+    payment.upgrade_request_id = linked.id
+    db.add(payment)
     tenant.subscription_plan_id = plan.id
     renew_plan_term(tenant, plan)
     db.add(tenant)

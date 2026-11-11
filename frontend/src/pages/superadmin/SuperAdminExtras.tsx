@@ -178,7 +178,7 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
 
   const label = plan.expired ? 'Renew / upgrade plan' : 'Upgrade plan'
   return (
-    <DashboardCard title="Upgrade or renew" subtitle="Pick a plan and send a request. Your plan changes after Aurae approves it.">
+    <DashboardCard title="Upgrade or renew" subtitle="Pick a plan and pay online to upgrade instantly, or send a request for Aurae to approve.">
       {pending ? (
         <p style={{ color: 'var(--amber)', fontWeight: 700 }}>
           Request for {pending.to_plan_name} sent on {pending.created_at.slice(0, 10)}. Awaiting approval from Aurae Software Solutions.
@@ -242,9 +242,9 @@ function UpgradeSection({ plan, onRequested }: { plan: MyPlan; onRequested?: () 
           {error && <p className="error-text">{error}</p>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             {pay?.gateway_available && (
-              <button className="btn" disabled={busy} onClick={payOnline}>{busy ? 'Please wait…' : 'Pay online'}</button>
+              <button className="btn amber" disabled={busy} onClick={payOnline}>{busy ? 'Please wait…' : 'Pay online & upgrade'}</button>
             )}
-            <button className="btn amber" disabled={busy} onClick={submit}>{busy ? 'Sending…' : 'Send request'}</button>
+            <button className={`btn${pay?.gateway_available ? '' : ' amber'}`} disabled={busy} onClick={submit}>{busy ? 'Sending…' : 'Send request'}</button>
             <button className="btn" onClick={() => setOpen(false)}>Cancel</button>
           </div>
         </Modal>

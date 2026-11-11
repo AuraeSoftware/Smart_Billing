@@ -5,7 +5,7 @@ SUPREME_ADMIN role; a Super Admin has no access to any of it, including the
 device log, by design.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
@@ -790,6 +790,11 @@ class UpgradeRequestRow(BaseModel):
     decision_note: str | None
     created_at: str
     decided_at: str | None
+    paid_online: bool = False
+    paid_amount: float | None = None
+    paid_currency: str | None = None
+    payment_ref: str | None = None
+    paid_at: str | None = None
 
 
 class UpgradeDecisionIn(BaseModel):
@@ -801,7 +806,13 @@ def _upgrade_row(db: Session, r: PlanUpgradeRequest) -> UpgradeRequestRow:
     to_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == r.to_plan_id).one_or_none()
     from_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == r.from_plan_id).one_or_none() if r.from_plan_id else None
     requester = db.query(User).filter(User.id == r.requested_by_id).one_or_none() if r.requested_by_id else None
+    paid = db.query(SubscriptionPayment).filter(
+        SubscriptionPayment.upgrade_request_id == r.id, SubscriptionPayment.status == "paid",
+    ).first()
     return UpgradeRequestRow(
+        paid_online=paid is not None, paid_amount=float(paid.amount) if paid else None,
+        paid_currency=paid.currency if paid else None, payment_ref=paid.gateway_payment_id if paid else None,
+        paid_at=paid.paid_at.isoformat() if paid and paid.paid_at else None,
         id=r.id, tenant_id=tenant.id, tenant_name=tenant.name,
         requested_by=requester.full_name if requester else None, status=r.status,
         from_plan_name=from_plan.name if from_plan else None,
@@ -823,7 +834,24 @@ def list_upgrade_requests(
     q = db.query(PlanUpgradeRequest)
     if status_filter in ("pending", "approved", "rejected"):
         q = q.filter(PlanUpgradeRequest.status == status_filter)
+    elif status_filter == "paid":
+        q = q.join(SubscriptionPayment, SubscriptionPayment.upgrade_request_id == PlanUpgradeRequest.id).filter(SubscriptionPayment.status == "paid")
     return [_upgrade_row(db, r) for r in q.order_by(PlanUpgradeRequest.created_at.desc()).limit(200).all()]
+
+
+@router.get("/upgrade-requests/paid-summary")
+def paid_upgrade_summary(db: Session = Depends(get_db), _: User = Depends(require_supreme_admin)):
+    """Upgrades Super Admins paid for online (no approval needed) in the last
+    7 days, so they show up on the Supreme Admin's dashboard."""
+    since = datetime.utcnow() - timedelta(days=7)
+    rows = db.query(SubscriptionPayment).filter(
+        SubscriptionPayment.purpose == "upgrade", SubscriptionPayment.status == "paid",
+        SubscriptionPayment.paid_at >= since.replace(tzinfo=timezone.utc),
+    ).all()
+    totals: dict[str, float] = {}
+    for p in rows:
+        totals[p.currency] = round(totals.get(p.currency, 0) + float(p.amount), 2)
+    return {"count": len(rows), "totals": totals}
 
 
 @router.get("/upgrade-requests/pending-count")
